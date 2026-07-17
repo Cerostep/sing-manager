@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>响应式网页设计实战 - 哎哟干嘛</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>哎哟干嘛</h1>
+            <p class="tagline">分享编程知识和技术见解</p>
+            <nav>
+                <a href="../index.html">首页</a>
+                <a href="../index.html#latest">最新文章</a>
+                <a href="../index.html#about">关于</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <a href="../index.html" class="back-link">← 返回首页</a>
+            
+            <article>
+                <h1>响应式网页设计实战</h1>
+                <div class="article-meta">
+                    <span>发布时间: 2026-04-11</span>
+                    <span>作者: 技术博主</span>
+                    <span>阅读时间: 9分钟</span>
+                </div>
+
+                <div class="article-content">
+                    <h2>为什么响应式设计重要</h2>
+                    <p>
+                        在移动设备时代，无法适应不同屏幕尺寸的网站会失去大量用户。
+                        响应式网页设计不仅提升用户体验，还能改善 SEO 排名，
+                        并且降低维护多个版本网站的成本。
+                    </p>
+
+                    <h2>响应式设计的三个核心要素</h2>
+
+                    <h3>1. 弹性网格布局</h3>
+                    <p>使用相对单位而不是固定像素：</p>
+                    <pre><code>/* 固定宽度（不推荐） */
+.container {
+    width: 960px;
+}
+
+/* 弹性宽度（推荐） */
+.container {
+    width: 90%;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* 使用百分比布局 */
+.column {
+    width: 33.333%;
+    float: left;
+}</code></pre>
+
+                    <h3>2. 灵活的图片和媒体</h3>
+                    <p>
+                        本博客使用纯文本，但如果你的网站包含媒体，需要确保它们是流动的：
+                    </p>
+                    <pre><code>/* 响应式图片 */
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* 响应式视频 */
+.video-container {
+    position: relative;
+    width: 100%;
+    padding-bottom: 56.25%;  /* 16:9 */
+    height: 0;
+    overflow: hidden;
+}
+
+.video-container iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}</code></pre>
+
+                    <h3>3. 媒体查询</h3>
+                    <p>基于屏幕尺寸应用不同样式：</p>
+                    <pre><code>/* 移动优先（Mobile-first） */
+.article {
+    font-size: 14px;
+    padding: 10px;
+}
+
+/* 平板 */
+@media (min-width: 768px) {
+    .article {
+        font-size: 16px;
+        padding: 20px;
+    }
+}
+
+/* 桌面 */
+@media (min-width: 1024px) {
+    .article {
+        font-size: 18px;
+        padding: 40px;
+    }
+}
+
+/* 大屏幕 */
+@media (min-width: 1400px) {
+    .article {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+}</code></pre>
+
+                    <h2>移动优先 vs 桌面优先</h2>
+
+                    <h3>移动优先（推荐）</h3>
+                    <p>从移动版本开始，逐步为更大的屏幕添加功能：</p>
+                    <pre><code>/* 移动版本（基础） */
+body {
+    font-size: 14px;
+    width: 100%;
+}
+
+nav {
+    display: block;
+    width: 100%;
+}
+
+/* 为平板和桌面增强 */
+@media (min-width: 768px) {
+    body {
+        font-size: 16px;
+    }
+
+    nav {
+        display: flex;
+        justify-content: space-between;
+    }
+}</code></pre>
+
+                    <h2>常见的响应式布局模式</h2>
+
+                    <h3>Flexbox 布局</h3>
+                    <p>现代布局首选：</p>
+                    <pre><code>/* 导航栏 */
+nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+nav a {
+    flex: 1;
+    min-width: 100px;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    nav {
+        flex-direction: column;
+    }
+
+    nav a {
+        width: 100%;
+    }
+}</code></pre>
+
+                    <h3>CSS Grid 布局</h3>
+                    <p>用于复杂的二维布局：</p>
+                    <pre><code>.grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+@media (max-width: 768px) {
+    .grid-container {
+        grid-template-columns: 1fr;
+    }
+}</code></pre>
+
+                    <h2>视口设置</h2>
+                    <p>这是响应式设计的起点，所有现代网站都应该包含：</p>
+                    <pre><code>&lt;!-- HTML head 中 --&gt;
+&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;</code></pre>
+
+                    <h2>触摸友好的界面</h2>
+                    <p>在移动设备上，需要考虑触摸交互：</p>
+                    <pre><code>/* 可点击元素的最小大小 */
+button, a {
+    min-height: 48px;
+    min-width: 48px;
+    padding: 12px 16px;
+}
+
+/* 避免使用 :hover （触摸设备不支持） */
+@media (hover: hover) {
+    button:hover {
+        background-color: #f0f0f0;
+    }
+}
+
+/* 禁用双击缩放 */
+input, button {
+    touch-action: manipulation;
+}</code></pre>
+
+                    <h2>性能考虑</h2>
+
+                    <h3>条件加载资源</h3>
+                    <pre><code>&lt;!-- 针对特定设备加载不同资源 --&gt;
+&lt;picture&gt;
+    &lt;source media="(min-width: 1024px)" srcset="large.jpg"&gt;
+    &lt;source media="(min-width: 768px)" srcset="medium.jpg"&gt;
+    &lt;img src="small.jpg" alt="responsive"&gt;
+&lt;/picture&gt;</code></pre>
+
+                    <h3>使用相对单位</h3>
+                    <pre><code>/* 避免 */
+padding: 16px;   /* 固定像素 */
+
+/* 推荐 */
+padding: 1rem;   /* 相对于根字体大小 */
+font-size: 1.2em;  /* 相对于父元素 */
+
+/* 计算值 */
+width: calc(100% - 20px);</code></pre>
+
+                    <h2>测试响应式设计</h2>
+
+                    <h3>浏览器开发者工具</h3>
+                    <ul>
+                        <li>打开开发者工具（F12）</li>
+                        <li>切换设备工具栏（Ctrl+Shift+M）</li>
+                        <li>选择不同的设备预设</li>
+                        <li>测试横竖屏方向</li>
+                    </ul>
+
+                    <h3>真实设备测试</h3>
+                    <p>始终在实际设备上测试你的网站。浏览器模拟可能不完全准确。</p>
+
+                    <h3>在线测试工具</h3>
+                    <ul>
+                        <li>Google Mobile-Friendly Test</li>
+                        <li>BrowserStack</li>
+                        <li>Responsively App</li>
+                    </ul>
+
+                    <h2>常见陷阱</h2>
+
+                    <h3>过度使用断点</h3>
+                    <pre><code>/* 避免 - 太多断点 */
+@media (max-width: 320px) { }
+@media (max-width: 480px) { }
+@media (max-width: 640px) { }
+@media (max-width: 768px) { }
+@media (max-width: 1024px) { }
+@media (max-width: 1280px) { }
+
+/* 推荐 - 只在需要时使用 */
+@media (max-width: 768px) { }    /* 平板 */
+@media (min-width: 1024px) { }   /* 桌面 */</code></pre>
+
+                    <h3>忽视内容</h3>
+                    <p>
+                        媒体查询的断点应该基于内容的实际需求，而不是特定设备的尺寸。
+                        如果你的布局在某个宽度下看起来不好，就添加一个断点。
+                    </p>
+
+                    <h2>无障碍可访问性</h2>
+                    <pre><code>/* 确保足够的对比度 */
+body {
+    color: #333;
+    background-color: #fff;
+}
+
+/* 可点击元素要有足够大小 */
+a, button {
+    min-height: 44px;
+}
+
+/* 使用语义 HTML */
+&lt;button&gt;点击这里&lt;/button&gt;  /* 好 */
+&lt;div class="button"&gt;点击&lt;/div&gt;  /* 坏 */</code></pre>
+
+                    <h2>最佳实践总结</h2>
+                    <ul>
+                        <li>采用移动优先的设计方法</li>
+                        <li>使用媒体查询进行布局调整</li>
+                        <li>确保可触摸的交互元素足够大</li>
+                        <li>在真实设备上进行测试</li>
+                        <li>优化性能并考虑加载时间</li>
+                        <li>保持设计简单和一致</li>
+                        <li>使用相对单位而非像素</li>
+                        <li>确保网站可访问</li>
+                    </ul>
+
+                    <h2>总结</h2>
+                    <p>
+                        响应式网页设计不是可选的——它是现代 Web 开发的必需品。
+                        通过遵循本指南中的原则和技巧，你可以创建在所有设备上都能良好运行的网站。
+                        记住，最好的设计是用户看不却处处感受到的，默默为他们的体验服务。
+                    </p>
+                </div>
+            </article>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 哎哟干嘛. 保留所有权利。</p>
+            <p>使用 HTML | CSS 构建 | 由 Nginx 驱动</p>
+        </div>
+    </footer>
+</body>
+</html>

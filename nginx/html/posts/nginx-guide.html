@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nginx 完全配置指南 - 哎哟干嘛</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>哎哟干嘛</h1>
+            <p class="tagline">分享编程知识和技术见解</p>
+            <nav>
+                <a href="../index.html">首页</a>
+                <a href="../index.html#latest">最新文章</a>
+                <a href="../index.html#about">关于</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <a href="../index.html" class="back-link">← 返回首页</a>
+            
+            <article>
+                <h1>Nginx 完全配置指南</h1>
+                <div class="article-meta">
+                    <span>发布时间: 2026-04-13</span>
+                    <span>作者: 技术博主</span>
+                    <span>阅读时间: 12分钟</span>
+                </div>
+
+                <div class="article-content">
+                    <h2>Nginx 介绍</h2>
+                    <p>
+                        Nginx 是一个高性能的 HTTP 和反向代理服务器，以其稳定性、高性能和低资源消耗而闻名。
+                        与 Apache 相比，Nginx 使用更少的内存并能处理更多的并发连接。
+                    </p>
+
+                    <h2>Nginx 的优势</h2>
+                    <ul>
+                        <li>高性能 - 能处理成千上万的并发连接</li>
+                        <li>低资源消耗 - 内存占用少</li>
+                        <li>高可靠性 - 主进程和工作进程分离</li>
+                        <li>模块化设计 - 易于扩展功能</li>
+                        <li>反向代理 - 可作为负载均衡器</li>
+                        <li>静态文件服务 - 高效的文件传输</li>
+                    </ul>
+
+                    <h2>Nginx 安装</h2>
+                    <p>在 Ubuntu/Debian 上安装 Nginx：</p>
+                    <pre><code>sudo apt-get update
+sudo apt-get install nginx
+
+# 启动 Nginx
+sudo systemctl start nginx
+
+# 设置开机自启
+sudo systemctl enable nginx
+
+# 检查运行状态
+sudo systemctl status nginx</code></pre>
+
+                    <h2>Nginx 目录结构</h2>
+                    <p>主要的 Nginx 目录和文件：</p>
+                    <ul>
+                        <li><code>/etc/nginx/</code> - Nginx 配置目录</li>
+                        <li><code>/etc/nginx/nginx.conf</code> - 主配置文件</li>
+                        <li><code>/etc/nginx/sites-available/</code> - 可用的站点配置</li>
+                        <li><code>/etc/nginx/sites-enabled/</code> - 启用的站点配置</li>
+                        <li><code>/var/log/nginx/</code> - 日志目录</li>
+                        <li><code>/var/www/html/</code> - 默认网站根目录</li>
+                    </ul>
+
+                    <h2>基本配置</h2>
+                    <p>一个简单的静态网站配置：</p>
+                    <pre><code>server {
+    listen 80;
+    server_name example.com www.example.com;
+
+    root /var/www/html;
+    index index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # 错误页面
+    error_page 404 /404.html;
+    error_page 500 502 503 504 /50x.html;
+}</code></pre>
+
+                    <h2>URL 重写和重定向</h2>
+                    <p>使用 rewrite 进行 URL 重写：</p>
+                    <pre><code># 重定向 HTTP 到 HTTPS
+server {
+    listen 80;
+    server_name example.com;
+    return 301 https://$server_name$request_uri;
+}
+
+# 重写规则
+location /old-page {
+    rewrite ^/old-page/?$ /new-page permanent;
+}
+
+# 移除 .html 后缀
+location / {
+    try_files $uri $uri.html $uri/ =404;
+}</code></pre>
+
+                    <h2>反向代理配置</h2>
+                    <p>使用 Nginx 作为反向代理：</p>
+                    <pre><code>upstream backend {
+    server 127.0.0.1:3000;
+    server 127.0.0.1:3001;
+    server 127.0.0.1:3002;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    location / {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre>
+
+                    <h2>负载均衡</h2>
+                    <p>Nginx 提供多种负载均衡策略：</p>
+                    <pre><code># 轮询（默认）
+upstream backend {
+    server backend1.example.com;
+    server backend2.example.com;
+}
+
+# 加权轮询
+upstream backend {
+    server backend1.example.com weight=2;
+    server backend2.example.com weight=1;
+}
+
+# IP 哈希（会话保持）
+upstream backend {
+    ip_hash;
+    server backend1.example.com;
+    server backend2.example.com;
+}
+
+# 最少连接
+upstream backend {
+    least_conn;
+    server backend1.example.com;
+    server backend2.example.com;
+}</code></pre>
+
+                    <h2>SSL/TLS 配置</h2>
+                    <p>启用 HTTPS 和 SSL/TLS：</p>
+                    <pre><code>server {
+    listen 443 ssl http2;
+    server_name example.com;
+
+    ssl_certificate /etc/ssl/certs/example.com.crt;
+    ssl_certificate_key /etc/ssl/private/example.com.key;
+
+    # SSL 安全配置
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # HSTS 头
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location / {
+        root /var/www/html;
+        index index.html;
+    }
+}
+
+# 重定向 HTTP 到 HTTPS
+server {
+    listen 80;
+    server_name example.com;
+    return 301 https://$server_name$request_uri;
+}</code></pre>
+
+                    <h2>缓存配置</h2>
+                    <p>配置浏览器和代理缓存：</p>
+                    <pre><code>http {
+    # 缓存路径
+    proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=my_cache:10m;
+
+    server {
+        location / {
+            # 启用代理缓存
+            proxy_cache my_cache;
+            proxy_cache_valid 200 10m;
+            proxy_cache_use_stale error timeout http_500 http_502 http_503 http_504;
+
+            # 浏览器缓存
+            expires 7d;
+            add_header Cache-Control "public, max-age=604800";
+
+            proxy_pass http://backend;
+        }
+
+        # 不缓存某些文件
+        location ~ \.(php|jsp|asp)$ {
+            proxy_pass http://backend;
+            proxy_cache_use_stale off;
+        }
+    }
+}</code></pre>
+
+                    <h2>日志配置</h2>
+                    <pre><code>log_format main '$remote_addr - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent '
+                 '"$http_referer" "$http_user_agent"';
+
+server {
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log warn;
+}</code></pre>
+
+                    <h2>性能优化</h2>
+                    <p>优化 Nginx 性能的配置：</p>
+                    <pre><code>worker_processes auto;  # 自动检测 CPU 核心数
+worker_connections 4096;  # 每个工作进程的最大连接数
+
+# 启用 Gzip 压缩
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 6;
+gzip_types text/plain text/css text/xml text/javascript 
+           application/json application/javascript application/xml+rss 
+           application/rss+xml font/truetype font/opentype 
+           application/vnd.ms-fontobject image/svg+xml;</code></pre>
+
+                    <h2>常见错误和调试</h2>
+                    <p>检查配置语法：</p>
+                    <pre><code>sudo nginx -t</code></pre>
+                    <p>查看日志：</p>
+                    <pre><code>sudo tail -f /var/log/nginx/error.log
+sudo tail -f /var/log/nginx/access.log</code></pre>
+
+                    <h2>重要的 Nginx 命令</h2>
+                    <ul>
+                        <li><code>sudo systemctl start nginx</code> - 启动</li>
+                        <li><code>sudo systemctl stop nginx</code> - 停止</li>
+                        <li><code>sudo systemctl restart nginx</code> - 重启</li>
+                        <li><code>sudo systemctl reload nginx</code> - 重新加载配置</li>
+                        <li><code>sudo nginx -s reload</code> - 轻量级重新加载</li>
+                        <li><code>sudo nginx -t</code> - 测试配置</li>
+                    </ul>
+
+                    <h2>最佳实践</h2>
+                    <ul>
+                        <li>总是在更改配置前备份</li>
+                        <li>在生产环境前充分测试配置</li>
+                        <li>使用符号链接管理不同环境的配置</li>
+                        <li>定期检查和分析日志</li>
+                        <li>监控工作进程的资源使用</li>
+                        <li>实施安全头部和安全配置</li>
+                        <li>保持 Nginx 更新到最新版本</li>
+                    </ul>
+
+                    <h2>总结</h2>
+                    <p>
+                        Nginx 是现代互联网服务的重要组件。通过学习和掌握其配置，
+                        你可以构建高性能、可靠和可扩展的 Web 基础设施。
+                        本指南涵盖了最常见的使用场景，但 Nginx 的功能远不止这些，
+                        官方文档是深入学习的最好资源。
+                    </p>
+                </div>
+            </article>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 哎哟干嘛. 保留所有权利。</p>
+            <p>使用 HTML | CSS 构建 | 由 Nginx 驱动</p>
+        </div>
+    </footer>
+</body>
+</html>

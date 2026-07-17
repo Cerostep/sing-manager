@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <!-- 首页 -->
+    <url>
+        <loc>http://localhost/index.html</loc>
+        <lastmod>2026-04-17</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>1.0</priority>
+    </url>
+
+    <!-- HTML 和 CSS 基础 -->
+    <url>
+        <loc>http://localhost/posts/html-css-basics.html</loc>
+        <lastmod>2026-04-15</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+
+    <!-- Web 性能优化 -->
+    <url>
+        <loc>http://localhost/posts/web-performance.html</loc>
+        <lastmod>2026-04-14</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+
+    <!-- Nginx 完全指南 -->
+    <url>
+        <loc>http://localhost/posts/nginx-guide.html</loc>
+        <lastmod>2026-04-13</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+
+    <!-- JavaScript 实用技巧 -->
+    <url>
+        <loc>http://localhost/posts/javascript-tips.html</loc>
+        <lastmod>2026-04-12</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+
+    <!-- 响应式设计 -->
+    <url>
+        <loc>http://localhost/posts/responsive-design.html</loc>
+        <lastmod>2026-04-11</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+</urlset>

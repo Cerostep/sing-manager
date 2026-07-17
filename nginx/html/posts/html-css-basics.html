@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML 和 CSS 基础入门 - 哎哟干嘛</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>哎哟干嘛</h1>
+            <p class="tagline">分享编程知识和技术见解</p>
+            <nav>
+                <a href="../index.html">首页</a>
+                <a href="../index.html#latest">最新文章</a>
+                <a href="../index.html#about">关于</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <a href="../index.html" class="back-link">← 返回首页</a>
+            
+            <article>
+                <h1>HTML 和 CSS 基础入门</h1>
+                <div class="article-meta">
+                    <span>发布时间: 2026-04-15</span>
+                    <span>作者: 技术博主</span>
+                    <span>阅读时间: 8分钟</span>
+                </div>
+
+                <div class="article-content">
+                    <h2>介绍</h2>
+                    <p>
+                        HTML（超文本标记语言）和 CSS（层叠样式表）是现代web开发的基础。
+                        HTML 提供网页的结构和内容，而 CSS 负责样式和布局。理解这两种技术是成为web开发者的第一步。
+                    </p>
+
+                    <h2>什么是 HTML？</h2>
+                    <p>
+                        HTML 是一种标记语言，使用标签（tag）来定义网页元素。每个标签告诉浏览器如何显示内容。
+                        HTML 的设计遵循语义化原则，这意味着标签应该准确反映其内容的含义。
+                    </p>
+                    <p>基本的 HTML 结构包括：</p>
+                    <ul>
+                        <li><code>&lt;!DOCTYPE html&gt;</code> - 文档类型声明</li>
+                        <li><code>&lt;html&gt;</code> - 根元素</li>
+                        <li><code>&lt;head&gt;</code> - 文档头部，包含元数据</li>
+                        <li><code>&lt;body&gt;</code> - 文档主体，包含可见内容</li>
+                    </ul>
+
+                    <h2>常用的 HTML 标签</h2>
+                    <p>以下是一些最常用的 HTML 标签：</p>
+                    <ul>
+                        <li><code>&lt;h1&gt;...&lt;h6&gt;</code> - 标题</li>
+                        <li><code>&lt;p&gt;</code> - 段落</li>
+                        <li><code>&lt;a&gt;</code> - 超链接</li>
+                        <li><code>&lt;div&gt;</code> - 通用容器</li>
+                        <li><code>&lt;span&gt;</code> - 行内容器</li>
+                        <li><code>&lt;img&gt;</code> - 图片</li>
+                        <li><code>&lt;ul&gt;</code> 和 <code>&lt;ol&gt;</code> - 列表</li>
+                        <li><code>&lt;form&gt;</code> - 表单</li>
+                    </ul>
+
+                    <h2>什么是 CSS？</h2>
+                    <p>
+                        CSS 用于控制 HTML 元素的外观和布局。它允许你改变颜色、字体、间距、大小等样式属性。
+                        CSS 可以应用到多个元素，这样可以保持整个网站的一致性。
+                    </p>
+                    <p>引入 CSS 的方式有三种：</p>
+                    <ol>
+                        <li>内联样式 - 直接在 HTML 标签中使用 style 属性</li>
+                        <li>内部样式 - 在 HTML 文档的 &lt;style&gt; 标签中定义</li>
+                        <li>外部样式 - 在单独的 CSS 文件中定义（推荐）</li>
+                    </ol>
+
+                    <h2>CSS 选择器</h2>
+                    <p>CSS 选择器用于选择要样式化的 HTML 元素。主要的选择器类型包括：</p>
+                    <pre><code>/* 元素选择器 */
+p {
+    color: blue;
+}
+
+/* 类选择器 */
+.highlight {
+    background-color: yellow;
+}
+
+/* ID 选择器 */
+#header {
+    background-color: #333;
+}
+
+/* 属性选择器 */
+input[type="text"] {
+    border: 1px solid #ccc;
+}
+
+/* 伪类选择器 */
+a:hover {
+    color: red;
+}</code></pre>
+
+                    <h2>盒模型</h2>
+                    <p>
+                        理解 CSS 盒模型是掌握布局的关键。每个元素都被视为一个矩形盒子，由以下部分组成：
+                    </p>
+                    <ul>
+                        <li><strong>内容</strong> - 元素的实际内容</li>
+                        <li><strong>内边距（Padding）</strong> - 内容周围的空间</li>
+                        <li><strong>边框（Border）</strong> - 围绕内边距的线</li>
+                        <li><strong>外边距（Margin）</strong> - 边框外的空间</li>
+                    </ul>
+
+                    <h2>布局方法</h2>
+                    <p>
+                        现代 CSS 提供了几种强大的布局方法：
+                    </p>
+                    <ul>
+                        <li><strong>浮动（Float）</strong> - 传统的布局方法，现在较少使用</li>
+                        <li><strong>定位（Positioning）</strong> - 相对定位、绝对定位等</li>
+                        <li><strong>Flexbox</strong> - 灵活的一维布局模式</li>
+                        <li><strong>Grid</strong> - 强大的二维布局系统</li>
+                    </ul>
+
+                    <h2>响应式设计基础</h2>
+                    <p>
+                        要使网站在各种设备上看起来好看，需要使用媒体查询和流动布局：
+                    </p>
+                    <pre><code>/* 移动优先的响应式设计 */
+.container {
+    width: 100%;
+}
+
+/* 平板设备 */
+@media (min-width: 768px) {
+    .container {
+        width: 90%;
+        margin: 0 auto;
+    }
+}
+
+/* 桌面设备 */
+@media (min-width: 1024px) {
+    .container {
+        width: 80%;
+        max-width: 1200px;
+    }
+}</code></pre>
+
+                    <h2>最佳实践</h2>
+                    <ul>
+                        <li>使用语义化的 HTML 标签</li>
+                        <li>将样式与结构分离（使用外部 CSS 文件）</li>
+                        <li>使用有意义的类名和 ID 名称</li>
+                        <li>遵循 DRY 原则（Don't Repeat Yourself）</li>
+                        <li>测试跨浏览器兼容性</li>
+                        <li>优先考虑可访问性（Accessibility）</li>
+                        <li>使用版本控制系统管理代码</li>
+                    </ul>
+
+                    <h2>总结</h2>
+                    <p>
+                        HTML 和 CSS 是 web 开发的基石。掌握这两种技术将为你的编程生涯奠定坚实的基础。
+                        通过不断的练习和学习，你将能够创建美观、易用且高效的网站。记住，优秀的 web 开发者
+                        不仅要写出功能正确的代码，还要确保代码易于维护和扩展。
+                    </p>
+
+                    <h2>下一步</h2>
+                    <p>
+                        现在你已经了解了 HTML 和 CSS 的基础，下一步可以：
+                    </p>
+                    <ol>
+                        <li>练习创建简单的网页</li>
+                        <li>学习 JavaScript 来添加交互功能</li>
+                        <li>探索更高级的 CSS 特性</li>
+                        <li>学习如何使用开发者工具进行调试</li>
+                    </ol>
+                </div>
+            </article>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 哎哟干嘛. 保留所有权利。</p>
+            <p>使用 HTML | CSS 构建 | 由 Nginx 驱动</p>
+        </div>
+    </footer>
+</body>
+</html>

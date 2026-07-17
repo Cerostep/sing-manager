@@ -1,0 +1,67 @@
+# robots.txt - 爬虫禁止文件（严格模式）
+# 所有爬虫及爬虫程序被禁止
+
+# 禁止所有爬虫
+User-agent: *
+Disallow: /
+
+# 明确禁止特定爬虫
+User-agent: Googlebot
+Disallow: /
+
+User-agent: Bingbot
+Disallow: /
+
+User-agent: BaiduSpider
+Disallow: /
+
+User-agent: YandexBot
+Disallow: /
+
+User-agent: SogouSpider
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+# 禁止 wget、curl 等下载工具
+User-agent: wget
+Disallow: /
+
+User-agent: curl
+Disallow: /
+
+User-agent: python-requests
+Disallow: /
+
+User-agent: scrapy
+Disallow: /
+
+# 禁止其他爬虫和爬虫程序
+User-agent: bot
+Disallow: /
+
+User-agent: crawler
+Disallow: /
+
+User-agent: spider
+Disallow: /
+
+# 禁止所有未识别的爬虫
+User-agent: *
+Disallow: /

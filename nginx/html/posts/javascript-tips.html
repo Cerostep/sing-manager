@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaScript 实用技巧与最佳实践 - 哎哟干嘛</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>哎哟干嘛</h1>
+            <p class="tagline">分享编程知识和技术见解</p>
+            <nav>
+                <a href="../index.html">首页</a>
+                <a href="../index.html#latest">最新文章</a>
+                <a href="../index.html#about">关于</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <a href="../index.html" class="back-link">← 返回首页</a>
+            
+            <article>
+                <h1>JavaScript 实用技巧与最佳实践</h1>
+                <div class="article-meta">
+                    <span>发布时间: 2026-04-12</span>
+                    <span>作者: 技术博主</span>
+                    <span>阅读时间: 11分钟</span>
+                </div>
+
+                <div class="article-content">
+                    <h2>介绍</h2>
+                    <p>
+                        JavaScript 已成为现代 Web 开发的中心。无论你是初学者还是有经验的开发者，
+                        掌握一些实用技巧和最佳实践都能显著提高代码质量和开发效率。
+                    </p>
+
+                    <h2>变量声明最佳实践</h2>
+                    <p>优先使用 const，其次使用 let，避免使用 var：</p>
+                    <pre><code>// 避免
+var x = 10;  // 作用域混乱，容易出错
+
+// 推荐
+const MAX_LIMIT = 100;  // 不可重新赋值的常量
+let counter = 0;        // 需要重新赋值的变量</code></pre>
+
+                    <h2>现代 JavaScript 特性</h2>
+
+                    <h3>箭头函数</h3>
+                    <p>箭头函数提供更简洁的语法和自动绑定 this：</p>
+                    <pre><code>// 传统函数
+const add = function(a, b) {
+    return a + b;
+};
+
+// 箭头函数
+const add = (a, b) => a + b;
+
+// 带默认参数
+const greet = (name = 'Guest') => `Hello, ${name}!`;</code></pre>
+
+                    <h3>解构赋值</h3>
+                    <p>简化从对象和数组中提取值的过程：</p>
+                    <pre><code>// 对象解构
+const person = { name: 'Alice', age: 30, city: 'NYC' };
+const { name, age } = person;
+
+// 数组解构
+const colors = ['red', 'green', 'blue'];
+const [first, second] = colors;
+
+// 嵌套解构
+const { address: { city } } = person;</code></pre>
+
+                    <h3>模板字符串</h3>
+                    <p>使用反引号和 ${} 进行字符串插值：</p>
+                    <pre><code>const name = 'World';
+const greeting = `Hello, ${name}!`;
+
+// 多行字符串
+const html = `
+    &lt;div&gt;
+        &lt;p&gt;Hello&lt;/p&gt;
+    &lt;/div&gt;
+`;
+
+// 带逻辑的模板
+const age = 25;
+const message = `You are ${age >= 18 ? 'an adult' : 'a minor'}`;</code></pre>
+
+                    <h2>异步编程</h2>
+
+                    <h3>Promise</h3>
+                    <p>处理异步操作的标准方式：</p>
+                    <pre><code>const fetchData = () => {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            resolve({ data: 'success' });
+        }, 1000);
+    });
+};
+
+fetchData()
+    .then(result => console.log(result))
+    .catch(error => console.error(error))
+    .finally(() => console.log('完成'));</code></pre>
+
+                    <h3>Async/Await</h3>
+                    <p>更优雅的异步代码写法：</p>
+                    <pre><code>async function fetchUserData(userId) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('获取用户数据失败:', error);
+        throw error;
+    }
+}
+
+// 使用
+const user = await fetchUserData(123);</code></pre>
+
+                    <h2>数组方法</h2>
+                    <p>熟悉常用的数组方法能提高编程效率：</p>
+                    <pre><code>const numbers = [1, 2, 3, 4, 5];
+
+// map - 转换数组
+const doubled = numbers.map(n => n * 2);
+
+// filter - 过滤数组
+const evens = numbers.filter(n => n % 2 === 0);
+
+// reduce - 聚合数组
+const sum = numbers.reduce((acc, n) => acc + n, 0);
+
+// find - 查找单个元素
+const first = numbers.find(n => n > 2);
+
+// some/every - 检查条件
+const hasEven = numbers.some(n => n % 2 === 0);
+const allPositive = numbers.every(n => n > 0);</code></pre>
+
+                    <h2>对象和数组扩展</h2>
+                    <p>使用扩展运算符进行浅复制和合并：</p>
+                    <pre><code>// 对象合并
+const obj1 = { a: 1, b: 2 };
+const obj2 = { c: 3 };
+const merged = { ...obj1, ...obj2 };
+
+// 数组连接
+const arr1 = [1, 2];
+const arr2 = [3, 4];
+const combined = [...arr1, ...arr2];
+
+// 浅复制
+const copy = { ...original };
+
+// 剩余参数
+const [first, ...rest] = [1, 2, 3, 4];</code></pre>
+
+                    <h2>错误处理</h2>
+                    <p>健壮的错误处理是关键：</p>
+                    <pre><code>// 自定义错误
+class ValidationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ValidationError';
+    }
+}
+
+// 错误处理最佳实践
+async function processData(data) {
+    try {
+        if (!data) {
+            throw new ValidationError('数据不能为空');
+        }
+        // 处理数据
+        return data;
+    } catch (error) {
+        if (error instanceof ValidationError) {
+            console.error('验证错误:', error.message);
+        } else {
+            console.error('未知错误:', error);
+        }
+        throw error;  // 重新抛出
+    }
+}</code></pre>
+
+                    <h2>函数最佳实践</h2>
+
+                    <h3>函数参数</h3>
+                    <pre><code>// 避免多个参数 - 使用对象
+function createUser(name, email, age, city) { }
+
+// 推荐
+function createUser({ name, email, age, city }) { }
+
+// 使用
+createUser({
+    name: 'Alice',
+    email: 'alice@example.com',
+    age: 30,
+    city: 'NYC'
+});</code></pre>
+
+                    <h3>纯函数</h3>
+                    <p>编写没有副作用的纯函数：</p>
+                    <pre><code>// 非纯函数 - 修改外部状态
+let globalCounter = 0;
+function increment() {
+    globalCounter++;  // 副作用
+}
+
+// 纯函数
+function increment(counter) {
+    return counter + 1;  // 不修改外部状态
+}</code></pre>
+
+                    <h2>DOM 操作</h2>
+                    <p>高效的 DOM 操作技巧：</p>
+                    <pre><code>// 避免多次 DOM 查询
+const elements = document.querySelectorAll('.item');
+
+// 批量更新 - 使用 DocumentFragment
+const fragment = document.createDocumentFragment();
+for (let i = 0; i < 100; i++) {
+    const div = document.createElement('div');
+    div.textContent = i;
+    fragment.appendChild(div);
+}
+document.body.appendChild(fragment);
+
+// 事件委托
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('btn')) {
+        // 处理按钮点击
+    }
+});</code></pre>
+
+                    <h2>防止常见错误</h2>
+
+                    <h3>类型强制转换</h3>
+                    <pre><code>// 避免隐式转换
+0 == false      // true (隐式转换)
+0 === false     // false (严格相等)
+
+// 使用明确的转换
+const num = parseInt('123', 10);
+const bool = Boolean(value);
+const str = String(value);</code></pre>
+
+                    <h3>闭包陷阱</h3>
+                    <pre><code>// 陷阱 - 在循环中创建闭包
+for (var i = 0; i < 5; i++) {
+    setTimeout(() => console.log(i), 100);  // 输出 5 5 5 5 5
+}
+
+// 解决方案 1 - 使用 let
+for (let i = 0; i < 5; i++) {
+    setTimeout(() => console.log(i), 100);  // 输出 0 1 2 3 4
+}
+
+// 解决方案 2 - 使用 IIFE
+for (var i = 0; i < 5; i++) {
+    (function(j) {
+        setTimeout(() => console.log(j), 100);
+    })(i);
+}</code></pre>
+
+                    <h2>列表赋值陷阱</h2>
+                    <pre><code>// 修改嵌套对象
+const original = { nested: { value: 1 } };
+const shallow = { ...original };
+shallow.nested.value = 2;  // 修改了原始对象！
+
+// 深复制
+const deep = JSON.parse(JSON.stringify(original));
+// 或使用库如 lodash 的 cloneDeep</code></pre>
+
+                    <h2>性能优化</h2>
+
+                    <h3>防抖和节流</h3>
+                    <pre><code>// 防抖 - 延迟执行
+function debounce(fn, delay) {
+    let timeoutId;
+    return (...args) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn(...args), delay);
+    };
+}
+
+// 节流 - 限制执行频率
+function throttle(fn, interval) {
+    let lastCall = 0;
+    return (...args) => {
+        const now = Date.now();
+        if (now - lastCall >= interval) {
+            fn(...args);
+            lastCall = now;
+        }
+    };
+}</code></pre>
+
+                    <h2>代码风格指南</h2>
+                    <ul>
+                        <li>使用 ESLint 检查代码质量</li>
+                        <li>使用 Prettier 格式化代码</li>
+                        <li>编写清晰的变量和函数名称</li>
+                        <li>添加有意义的注释</li>
+                        <li>遵循一致的命名约定（驼峰命名法）</li>
+                        <li>保持函数简短单一职责</li>
+                    </ul>
+
+                    <h2>总结</h2>
+                    <p>
+                        编写高质量的 JavaScript 代码不仅需要学习语言特性，
+                        更重要的是理解最佳实践和常见陷阱。通过持续实践和学习，
+                        你将能够编写更清晰、更高效、更可维护的代码。
+                    </p>
+                </div>
+            </article>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 哎哟干嘛. 保留所有权利。</p>
+            <p>使用 HTML | CSS 构建 | 由 Nginx 驱动</p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiro CLI 进阶教程：Agent 与 Skills 的深度指南 - 哎哟干嘛</title>
+    <link rel="stylesheet" href="../css/style.css">
+    <style>
+        .demo-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .code-block {
+            background-color: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: monospace;
+        }
+        .concept-highlight {
+            font-weight: bold;
+            color: #d63384;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>哎哟干嘛</h1>
+            <p class="tagline">分享编程知识和技术见解</p>
+            <nav>
+                <a href="../index.html">首页</a>
+                <a href="../index.html#latest">最新文章</a>
+                <a href="../index.html#about">关于</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <a href="../index.html" class="back-link">← 返回首页</a>
+            
+            <article>
+                <h1>Kiro CLI 进阶教程：Agent 与 Skills 的深度指南</h1>
+                <div class="article-meta">
+                    <span>发布时间: 2026-05-09</span>
+                    <span>作者: 技术博主 (Agent 专家)</span>
+                    <span>阅读时间: 15分钟</span>
+                </div>
+
+                <div class="article-content">
+                    <h2>导语</h2>
+                    <p>
+                        在 AI 驱动开发的时代，Kiro CLI 不仅仅是一个命令行工具，它是一个编排智能工作流的平台。为了真正发挥它的威力，我们需要深入理解两个核心概念：<strong>Agent（智能体）</strong> 和 <strong>Skill（技能）</strong>。本教程将带你从理论走向实践，展示如何打造工业级的自动化开发助手。
+                    </p>
+
+                    <h2>核心概念解析：把 Agent 和 Skill 说明白</h2>
+                    <p>很多初学者会将这两个概念混淆，实际上它们扮演着截然不同的角色：</p>
+                    
+                    <div class="demo-box">
+                        <h3>1. Agent（智能体）：团队里的“数字员工”</h3>
+                        <p>
+                            Agent 就像是你雇佣的一位拥有特定专业背景的“大脑”。它由大语言模型（LLM）驱动，具备<span class="concept-highlight">意图理解、任务拆解、逻辑推理和记忆规划</span>的能力。
+                        </p>
+                        <ul>
+                            <li><strong>特征</strong>：有明确的 System Prompt（比如：“你是一个资深的 DevOps 工程师”）。</li>
+                            <li><strong>职责</strong>：接受用户的模糊指令，思考实现步骤，并在遇到异常时调整策略。</li>
+                        </ul>
+                    </div>
+
+                    <div class="demo-box">
+                        <h3>2. Skill（技能/工具）：数字员工的“手和眼”</h3>
+                        <p>
+                            纯粹的 LLM 只是在“空想”，它无法直接修改你的文件或查询网络。Skill 就是 Agent 用来感知和操作现实环境的工具（Tools/Functions）。
+                        </p>
+                        <ul>
+                            <li><strong>特征</strong>：原子化、高内聚，拥有明确的输入和输出参数定义。</li>
+                            <li><strong>职责</strong>：执行具体动作，例如：<code>read_file</code>（读取文件）、<code>run_shell</code>（执行命令）、<code>query_database</code>（查询数据库）。</li>
+                        </ul>
+                    </div>
+                    
+                    <blockquote>
+                        <strong>一句话总结：</strong>Agent 负责“想清楚要做什么”，Skill 负责“把事情干完”。Kiro CLI 的核心就是让定制化的 Agent 携带一组特定的 Skills 来解决垂直领域的痛点。
+                    </blockquote>
+
+                    <h2>如何确认是否需要创建新的 Skill？</h2>
+                    <p>
+                        不要为了写代码而写代码，在决定创建新 Skill 前，请通过以下“灵魂三问”进行校验：
+                    </p>
+                    <ol>
+                        <li><strong>通用性校验：</strong> 现有的基础系统命令（如 <code>bash</code>, <code>grep</code>, <code>sed</code>）是否已经能完美解决？如果能，就让 Agent 直接用系统命令，而不是开发新 Skill。</li>
+                        <li><strong>原子性校验：</strong> 这个能力是否足够单一？如果一个操作既要查日志、又要发邮件、还要改代码，说明它应该由 Agent 调度多个单一 Skill 组合完成，而不是写成一个庞大臃肿的“超级 Skill”。</li>
+                        <li><strong>上下文成本：</strong> 操作是否需要过滤大量噪音数据？大模型的上下文视窗极其珍贵（Token 昂贵且容易引发幻觉）。如果操作需要处理几百 MB 的日志文件，就必须写一个原生的本地 Skill，在本地提取出核心摘要后再喂给 Agent。</li>
+                    </ol>
+
+                    <h2>最佳实践与演示案例：打造你的专属 Agent</h2>
+                    <p>
+                        下面我们将通过两个达到“演示级别”的最佳实践，展示如何设计优秀的 Agent 与 Skills。
+                    </p>
+
+                    <h3>案例一：自动化代码审查员 (Code Reviewer Agent)</h3>
+                    <p><strong>场景痛点：</strong> 团队成员经常忘记检查代码规范，导致 CI/CD 流程中反复报错，浪费时间。</p>
+                    
+                    <p><strong>1. 定义 Agent (大脑配置)：</strong></p>
+                    <div class="code-block">Name: SeniorCodeReviewer
+Role: "你是一位拥有 10 年经验的架构师。你的目标是审查用户的代码变更，指出安全漏洞、性能隐患以及不符合团队规范的地方。你的语气应该专业且具有建设性。"</div>
+
+                    <p><strong>2. 装备 Skills (技能清单)：</strong></p>
+                    <ul>
+                        <li><code>get_git_diff</code>: 获取当前未提交或特定分支的 diff 内容。</li>
+                        <li><code>run_linter_check</code>: 在后台隐式运行 <code>eslint</code> 或 <code>flake8</code>，并返回结构化错误。</li>
+                        <li><code>add_inline_comment</code>: 将 Agent 的建议以特定格式直接写入文件的注释中，方便开发者查看。</li>
+                    </ul>
+
+                    <p><strong>3. 运行演示逻辑：</strong></p>
+                    <p>当用户在终端输入 <code>kiro review current</code> 时：</p>
+                    <ol>
+                        <li><strong>Agent 推理：</strong> 识别到需要审查当前代码。</li>
+                        <li><strong>调用 Skill：</strong> 触发 <code>get_git_diff</code> 拿到变更代码，触发 <code>run_linter_check</code> 拿到基础错误。</li>
+                        <li><strong>综合分析：</strong> LLM 将变更代码与 Linter 结果结合，发现一段嵌套了 4 层的 for 循环，指出时间复杂度过高。</li>
+                        <li><strong>输出结果：</strong> 整理出一份精美的 Markdown 报告输出到终端。</li>
+                    </ol>
+
+                    <h3>案例二：生产环境日志侦探 (Log Debugger Agent)</h3>
+                    <p><strong>场景痛点：</strong> 线上服务突然 500，运维人员需要在海量日志中用 grep 找线索，效率极低。</p>
+
+                    <p><strong>1. 定义 Agent (大脑配置)：</strong></p>
+                    <div class="code-block">Name: SRE_Incident_Commander
+Role: "你是一个高级 SRE 专家。当系统发生故障时，你要通过排查日志和状态，迅速定位 Root Cause (根本原因)，并给出紧急止血方案。"</div>
+
+                    <p><strong>2. 装备 Skills (技能清单)：</strong></p>
+                    <ul>
+                        <li><code>search_error_logs(time_range, keyword)</code>: 这是一个<strong>精心优化的 Skill</strong>。它不会把所有日志丢给模型，而是使用 Rust/Go 编写的高性能本地模块，提取指定时间段内包含 "Exception/Error" 的前后 20 行上下文。</li>
+                        <li><code>check_service_status(service_name)</code>: 查询容器或进程的健康状态。</li>
+                        <li><code>query_knowledge_base(error_trace)</code>: 根据报错堆栈，在团队内部的 Wiki/Confluence 中检索历史解决方案。</li>
+                    </ul>
+
+                    <p><strong>3. 运行演示逻辑：</strong></p>
+                    <p>当用户输入 <code>kiro investigate nginx-502</code> 时：</p>
+                    <ol>
+                        <li>Agent 分析意图，知道要排查 Nginx 502 错误。</li>
+                        <li>调用 <code>search_error_logs</code> 发现后端 upstream 返回了 "Connection refused"。</li>
+                        <li>调用 <code>check_service_status</code> 发现后端应用进程已经 OOM 崩溃。</li>
+                        <li>Agent 结合线索给出结论：“Nginx 502 的根本原因是后端 Node.js 服务发生 OOM。建议立即重启后端服务，并扩大内存分配。”</li>
+                    </ol>
+
+                    <h2>Skills Agent 的创建与优化原则</h2>
+                    <p>为了让上面的演示能够稳定落地，你需要遵循以下开发原则：</p>
+                    <ul>
+                        <li><strong>最小权限原则 (Least Privilege)：</strong> 只读 Skill 不应该拥有写入权限。例如 <code>search_error_logs</code> 绝不能被赋予修改文件的能力，避免 Agent 产生幻觉时造成破坏。</li>
+                        <li><strong>防患于未然的回退机制 (Fallback)：</strong> 在 Skill 执行失败或超时（比如网络 API 无响应）时，必须返回清晰的错误信息给 Agent（例如：“Error: Database timeout”），让 Agent 能够“自我纠错”或向用户求助，而不是直接崩溃。</li>
+                        <li><strong>Prompt 瘦身与结构化输出：</strong> 强制要求 Skill 返回 JSON 格式的数据，而不是长篇大论的文本。这样有助于 Agent 更精准地提取信息，大幅节省 Token 并提升响应速度。</li>
+                    </ul>
+
+                    <h2>总结</h2>
+                    <p>
+                        在 Kiro CLI 的生态中，Agent 是战略家，Skill 是战术执行者。不要试图创造一个无所不能的神，而是要构建一群专业、互补、能力边界清晰的专家团队。通过精妙的 Skill 设计来控制信息输入，通过清晰的 Prompt 引导 Agent 决策，你将彻底改变你的日常开发体验。
+                    </p>
+                </div>
+            </article>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 哎哟干嘛. 保留所有权利。</p>
+            <p>使用 HTML | CSS 构建 | 由 Nginx 驱动</p>
+        </div>
+    </footer>
+</body>
+</html>
