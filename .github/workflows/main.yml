@@ -1,0 +1,31 @@
+name: Build nginx release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package nginx
+        run: |
+          mkdir -p release
+          tar -czvf release/nginx.tar.gz nginx
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/nginx.tar.gz
+            singmanager
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
