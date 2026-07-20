@@ -30,6 +30,10 @@ SING_BOX_INSTALL_URL="https://sing-box.app/install.sh"
 CF_Email=""
 CF_Token=""
 
+# WRAPPLUS_OUTBOUND is an optional outbound configuration snippet for sing-box.
+# through the Cloudflare WARP+ service.  It is enabled by default.  Set to "false" to disable.
+ENABLE_WARPPLUS="true"
+
 # Runtime paths and defaults
 PROTOCOL_TYPE="vless"
 SERVER_ADDR=""
@@ -127,12 +131,16 @@ mask_secret() {
 
 show_startup_configuration() {
     echo -e "${BLUE}Main script configuration (edit the User configuration section at the top of this script)${NC}"
-    echo "  • SELF_BACKEND: $SELF_BACKEND"
-    echo "  • NGINX_RELEASE_URL: ${NGINX_RELEASE_URL:-Not configured}"
-    echo "  • SING_BOX_VERSION_DEFAULT: $SING_BOX_VERSION_DEFAULT"
-    echo "  • SING_BOX_INSTALL_URL: $SING_BOX_INSTALL_URL"
-    echo "  • CF_Email: ${CF_Email:-Not configured}"
-    echo "  • CF_Token: $(mask_secret "$CF_Token")"
+    echo -e "${RED}  • SELF_BACKEND: $SELF_BACKEND"
+    echo -e "${GREEN}  • NGINX_RELEASE_URL: ${NGINX_RELEASE_URL:-Not configured}"
+    echo -e "${RED}  • SING_BOX_VERSION_DEFAULT: $SING_BOX_VERSION_DEFAULT"
+    echo -e "${GREEN}  • SING_BOX_INSTALL_URL: $SING_BOX_INSTALL_URL"
+    echo -e "${RED}  • FAKE_SITE: $FAKE_SITE"
+    echo -e "${GREEN}  • FAKE_SITE_PORT: $FAKE_SITE_PORT"
+    echo -e "${RED}  • SERVER_ADDR: ${SERVER_ADDR:-Not configured}"
+    echo -e "${GREEN}  • ENABLE_WARPPLUS: ${ENABLE_WARPPLUS:-false}"
+    echo -e "${RED}  • CF_Email: ${CF_Email:-Not configured}"
+    echo -e "${GREEN}  • CF_Token: $(mask_secret "$CF_Token")"
     echo ""
 }
 
@@ -267,6 +275,44 @@ install_dependencies() {
             fi
         fi
     done
+
+    
+    if [[ "${ENABLE_WARPPLUS}" == "true" ]]; then
+        local warp_packages=( "gpg" "lsb-release" )
+        for wp_package in "${warp_packages[@]}"; do
+            if dpkg -l | grep -qw "$wp_package" 2>/dev/null; then
+                log_info "$wp_package already installed (skipped)"
+            else
+                log_info "Installing $wp_package..."
+                if apt-get install -y "$wp_package" >> "$LOG_FILE" 2>&1; then
+                    log_success "$wp_package installed successfully"
+                else
+                    log_error "Failed to install $wp_package"
+                    exit 1
+                fi
+            fi
+        done
+        if curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg >> "$LOG_FILE" 2>&1; then
+            echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list
+            log_success "Warp GPG key downloaded and converted"
+        else
+            log_error "Failed to download Warp GPG key"
+            exit 1
+        fi
+        if dpkg -l |grep qw "cloudflare-warp" 2>/dev/null; then
+            log_info "cloudflare-warp already installed (skipped)"
+        else
+            log_info "Installing cloudflare-warp..."
+            apt-get -y update cloudflare-warp >> "$LOG_FILE" 2>&1
+            if $? -ne 0; then
+                log_error "Failed to update package indices for cloudflare-warp"
+                exit 1
+            fi
+        fi
+        log_info "ENABLE_WARPPLUS is true, cloudflare-warp will be installed"
+    else
+        log_info "ENABLE_WARPPLUS is false, cloudflare-warp installation skipped"
+    fi
 
     log_success "All dependencies installed"
 }
@@ -433,7 +479,7 @@ issue_nginx_certificate() {
     install_acme_sh || return 1
 
     log_info "Requesting Nginx certificate through Cloudflare DNS validation..."
-    if ! run_logged "$ACME_SH" --issue --dns dns_cf -d "$domain"; then
+    if ! run_logged "$ACME_SH" --issue --dns dns_cf -d "$domain" -d "*.$domain"; then
         log_error "Cloudflare DNS certificate issuance failed"
         return 1
     fi
@@ -537,6 +583,30 @@ create_sing_box_user() {
     log_success "sing-box user and directories ready"
 }
 
+install_wrapplus() {
+    # Initial connection
+    # To connect for the very first time:
+
+    # Register the client warp-cli registration new.
+    # Connect warp-cli connect.
+    # Run curl https://www.cloudflare.com/cdn-cgi/trace and verify that warp=on.
+    # Switch modes
+    # You can use warp-cli mode --help to get a list of modes to switch between. For example:
+
+    # DNS only mode via DoH: warp-cli mode doh
+    # WARP with DoH: warp-cli mode warp+doh
+    # Switch tunnel protocol
+    # You can switch the protocol that WARP uses to route traffic from the device to Cloudflare.
+
+    # WireGuard: warp-cli tunnel protocol set WireGuard
+    # MASQUE: (default) warp-cli tunnel protocol set MASQUE
+    warp-cli registration new  --accept-tos
+    warp-cli mode proxy
+    warp-cli proxy port 40000
+    warp-cli connect
+    warp-cli status
+}
+
 install_sing_box() {
     log_info "Preparing to install sing-box..."
 
@@ -548,11 +618,11 @@ install_sing_box() {
     protocol_choice=${protocol_choice:-1}
 
     if [[ "$protocol_choice" == "2" ]]; then
-        local protocol_type="vless"
+        protocol_type="vless"
         log_info "Selected protocol: VLESS"
         echo -e "${GREEN}Configuring for VLESS${NC}"
     else
-        local protocol_type="anytls"
+        protocol_type="anytls"
         log_info "Selected protocol: AnyTLS"
         echo -e "${GREEN}Configuring for AnyTLS${NC}"
     fi
@@ -560,11 +630,13 @@ install_sing_box() {
 
     if command -v sing-box &> /dev/null; then
         local current_version=$(sing-box version 2>/dev/null | head -n1)
-        log_warn "sing-box already installed (version: $current_version)"
+        log_warn "sing-box binary already installed (version: $current_version)"
         read -p "Reinstall or update? (Y/n) " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping sing-box installation (already installed)"
+            log_info "Skipping sing-box binnary installation (already installed)"
+            log_info "Continue to generate the sing-box config.json"
+            generate_sg_config
             return 0
         fi
     fi
@@ -601,6 +673,10 @@ install_sing_box() {
         return 1
     fi
 
+    setup_sing_box_service
+}
+
+generate_sg_config() {
     log_info "Generating Reality keypair..."
     if sing-box generate reality-keypair > /etc/sing-box/reality-keypair.txt 2>> "$LOG_FILE"; then
         log_success "Reality keypair generated"
@@ -678,10 +754,6 @@ install_sing_box() {
     fi
     
     log_success "sing-box configuration created with variables"
-
-    PROTOCOL_TYPE="$protocol_type"
-
-    setup_sing_box_service
 }
 
 generate_subscription() {
@@ -692,7 +764,7 @@ generate_subscription() {
         return 1
     fi
     
-    if [[ "$PROTOCOL_TYPE" == "vless" ]]; then
+    if [[ "$protocol_type" == "vless" ]]; then
         local uuid=$(jq -r '.inbounds[0].users[0].uuid' /etc/sing-box/config.json 2>/dev/null)
         local flow=$(jq -r '.inbounds[0].users[0].flow' /etc/sing-box/config.json 2>/dev/null)
         local port=$(jq -r '.inbounds[0].listen_port' /etc/sing-box/config.json 2>/dev/null)
@@ -828,7 +900,7 @@ SYSTEMD_EOF
     
     chown root:root "$service_file" 2>/dev/null || true
 
-    read -p "Enable and start sing-box service? (y/n) " -n 1 -r
+    read -p "Enable and start sing-box service? (Y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         log_info "Enabling sing-box autostart..."
@@ -898,9 +970,29 @@ run_installation() {
     fi
     echo "  • sing-box (proxy server)"
     echo ""
-    read -p "Do you want to continue with the installation? (y/n): " -n 1 -r
+    read -p "Do you want to continue with the installation? (Y/n): " -n 1 -r
     echo ""
     
+    if [[ "$ENABLE_WARPPLUS" == "true" ]]; then
+    WRAPPLUS_OUTBOUND='{
+            "type": "socks",
+            "tag": "warpplus-out",
+            "server": "127.0.0.1",
+            "server_port": 40000,
+            "version": "5",
+            "username": null,
+            "password": null,
+            "network": "tcp",
+            "udp_over_tcp": true
+        },'
+    else
+        # WRAPPLUS_OUTBOUND is empty when not enabled.
+        # fake outbound
+        WRAPPLUS_OUTBOUND='{
+            "type": "warpplus-out",
+            "tag": "direct"
+        },'
+    fi
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Installation cancelled by user${NC}"
         return 0
@@ -917,7 +1009,9 @@ run_installation() {
     create_directories
     install_config_files
     setup_ssl_certificates
+    install_wrapplus
     install_sing_box
+    generate_sg_config
     validate_nginx_config
     setup_permissions
     setup_nginx_service
@@ -939,7 +1033,7 @@ create_vless_json() {
     cat > "$output_file" << VLESS_JSON
 {
     "log": {
-        "level": "info",
+        "level": "warn",
         "output": "/var/log/sing-box.log",
         "timestamp": true
     },
@@ -961,8 +1055,7 @@ create_vless_json() {
             {
                 "rule_set": [
                     "geosite-disney",
-                    "geosite-reddit",
-                    "geosite-spotify"
+                    "geosite-reddit"
                 ],
                 "server": "dns-cloudflare"
             }
@@ -1004,20 +1097,10 @@ create_vless_json() {
             "type": "direct",
             "tag": "direct"
         },
+        ${WRAPPLUS_OUTBOUND}
         {
             "type": "block",
             "tag": "block"
-        },
-        {
-            "type": "socks",
-            "tag": "warpplus-out",
-            "server": "127.0.0.1",
-            "server_port": 40000,
-            "version": "5",
-            "username": null,
-            "password": null,
-            "network": "tcp",
-            "udp_over_tcp": true
         }
     ],
     "route": {
@@ -1091,7 +1174,7 @@ create_anytls_json() {
     cat > "$output_file" << ANYTLS_JSON
 {
     "log": {
-        "level": "info",
+        "level": "warn",
         "output": "/var/log/sing-box.log",
         "timestamp": true
     },
@@ -1166,20 +1249,10 @@ create_anytls_json() {
             "type": "direct",
             "tag": "direct"
         },
+        ${WRAPPLUS_OUTBOUND}
         {
             "type": "block",
             "tag": "block"
-        },
-        {
-            "type": "socks",
-            "tag": "warpplus-out",
-            "server": "127.0.0.1",
-            "server_port": 40000,
-            "version": "5",
-            "username": null,
-            "password": null,
-            "network": "tcp",
-            "udp_over_tcp": true
         }
     ],
     "route": {
