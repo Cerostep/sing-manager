@@ -21,7 +21,7 @@ set -o pipefail
 SELF_BACKEND="false"
 # Required only when SELF_BACKEND=true.  It must point to a GitHub Release
 # archive containing nginx/nginx.conf and nginx/html/.
-NGINX_RELEASE_URL=""
+NGINX_RELEASE_URL="https://github.com/Cerostep/sing-manager/releases/download/v1.0.0/nginx.tar.gz"
 # sing-box installer settings.
 SING_BOX_VERSION_DEFAULT="1.13.8"
 SING_BOX_INSTALL_URL="https://sing-box.app/install.sh"
