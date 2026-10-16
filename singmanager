@@ -3,10 +3,11 @@
 ################################################################################
 # singmanager - Unified installation and service management tool
 # Purpose: Install and manage sing-box and nginx services
-# Usage: sudo ./singmanager or sudo bash singmanager
+# Usage: sudo ./singmanager; after installation, run sudo singmanager
 # Features:
-#   - Idempotent installation
+#   - Idempotent installation and command setup in /usr/local/bin
 #   - Interactive service management
+#   - VLESS subscription QR code (256x256 px SVG)
 #   - Complete logging to /tmp/install.log
 ################################################################################
 
@@ -19,13 +20,14 @@ set -o pipefail
 # ============================================================================
 # Set to true to install and use Nginx as the self-hosted backend. [true/false]
 SELF_BACKEND="false"
+
 # Required only when SELF_BACKEND=true.  It must point to a GitHub Release
 # archive containing nginx/nginx.conf and nginx/html/.
 NGINX_RELEASE_URL="https://github.com/Cerostep/sing-manager/releases/download/v1.0.0/nginx.tar.gz"
 # sing-box installer settings.
 SING_BOX_VERSION_DEFAULT="1.13.8"
 SING_BOX_INSTALL_URL="https://sing-box.app/install.sh"
-# Cloudflare credentials are required only when issuing an AnyTLS certificate.
+# Cloudflare credentials are required only when issuing an Nginx certificate.
 # Leave them empty to enter them securely during installation.
 CF_Email=""
 CF_Token=""
@@ -35,7 +37,6 @@ CF_Token=""
 ENABLE_WARPPLUS="true"
 
 # Runtime paths and defaults
-PROTOCOL_TYPE="vless"
 SERVER_ADDR=""
 FAKE_SITE="cdnjs.cloudflare.com"
 FAKE_SITE_PORT="443"
@@ -208,6 +209,49 @@ pause_menu() {
     read -p "Press Enter to continue..."
 }
 
+install_singmanager_command() {
+    local source_path target_path="/usr/local/bin/singmanager"
+    local root_home bashrc
+    local path_line='case ":$PATH:" in *:/usr/local/bin:*) ;; *) export PATH="/usr/local/bin:$PATH" ;; esac'
+
+    source_path=$(readlink -f -- "${BASH_SOURCE[0]}") || {
+        log_error "Failed to resolve the singmanager script path"
+        return 1
+    }
+    if ! run_logged install -d -m 755 /usr/local/bin; then
+        log_error "Failed to create /usr/local/bin"
+        return 1
+    fi
+    if [[ "$source_path" != "$target_path" ]]; then
+        if ! run_logged install -m 755 "$source_path" "$target_path"; then
+            log_error "Failed to install singmanager to $target_path"
+            return 1
+        fi
+    elif ! run_logged chmod 755 "$target_path"; then
+        log_error "Failed to make $target_path executable"
+        return 1
+    fi
+
+    root_home=$(getent passwd root | cut -d: -f6)
+    if [[ -z "$root_home" ]]; then
+        log_error "Failed to determine the root user's home directory"
+        return 1
+    fi
+    bashrc="$root_home/.bashrc"
+    if ! run_logged touch "$bashrc"; then
+        log_error "Failed to create $bashrc"
+        return 1
+    fi
+    if ! grep -Fqx "$path_line" "$bashrc"; then
+        if ! printf '\n%s\n' "$path_line" >> "$bashrc"; then
+            log_error "Failed to add /usr/local/bin to PATH in $bashrc"
+            return 1
+        fi
+    fi
+
+    log_success "Installed /usr/local/bin/singmanager and configured $bashrc"
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script requires root privileges"
@@ -299,14 +343,17 @@ install_dependencies() {
             log_error "Failed to download Warp GPG key"
             exit 1
         fi
-        if dpkg -l |grep qw "cloudflare-warp" 2>/dev/null; then
+        if dpkg-query -W -f='${Status}' cloudflare-warp 2>/dev/null | grep -q 'install ok installed'; then
             log_info "cloudflare-warp already installed (skipped)"
         else
             log_info "Installing cloudflare-warp..."
-            apt-get -y update cloudflare-warp >> "$LOG_FILE" 2>&1
-            if $? -ne 0; then
+            if ! apt-get update >> "$LOG_FILE" 2>&1; then
                 log_error "Failed to update package indices for cloudflare-warp"
-                exit 1
+                return 1
+            fi
+            if ! apt-get install -y cloudflare-warp >> "$LOG_FILE" 2>&1; then
+                log_error "Failed to install cloudflare-warp"
+                return 1
             fi
         fi
         log_info "ENABLE_WARPPLUS is true, cloudflare-warp will be installed"
@@ -574,7 +621,9 @@ create_sing_box_user() {
         mkdir -p /etc/sing-box
         log_info "Created /etc/sing-box"
     fi
-
+    touch /var/log/sing-box.log
+    chown sing-box:sing-box /var/log/sing-box.log
+    chmod 644 /var/log/sing-box.log
     chown -R sing-box:sing-box /var/lib/sing-box
     chown -R sing-box:sing-box /etc/sing-box
     chmod 755 /var/lib/sing-box
@@ -584,49 +633,31 @@ create_sing_box_user() {
 }
 
 install_wrapplus() {
-    # Initial connection
-    # To connect for the very first time:
-
-    # Register the client warp-cli registration new.
-    # Connect warp-cli connect.
-    # Run curl https://www.cloudflare.com/cdn-cgi/trace and verify that warp=on.
-    # Switch modes
-    # You can use warp-cli mode --help to get a list of modes to switch between. For example:
-
-    # DNS only mode via DoH: warp-cli mode doh
-    # WARP with DoH: warp-cli mode warp+doh
-    # Switch tunnel protocol
-    # You can switch the protocol that WARP uses to route traffic from the device to Cloudflare.
-
-    # WireGuard: warp-cli tunnel protocol set WireGuard
-    # MASQUE: (default) warp-cli tunnel protocol set MASQUE
-    warp-cli registration new  --accept-tos
-    warp-cli mode proxy
-    warp-cli proxy port 40000
-    warp-cli connect
-    warp-cli status
+    if ! command -v warp-cli &> /dev/null; then
+        log_error "warp-cli is not installed"
+        return 1
+    fi
+    if warp-cli status 2>> "$LOG_FILE" | grep -qi "Connected"; then
+        log_info "Cloudflare WARP is already connected"
+        return 0
+    fi
+    if ! warp-cli registration show >> "$LOG_FILE" 2>&1; then
+        if ! run_step "Cloudflare WARP registered" "Failed to register Cloudflare WARP" \
+            warp-cli registration new --accept-tos; then
+            return 1
+        fi
+    fi
+    run_step "Cloudflare WARP proxy mode configured" "Failed to set Cloudflare WARP proxy mode" \
+        warp-cli mode proxy || return 1
+    run_step "Cloudflare WARP proxy port configured" "Failed to configure Cloudflare WARP proxy port" \
+        warp-cli proxy port 40000 || return 1
+    run_step "Cloudflare WARP connected" "Failed to connect Cloudflare WARP" \
+        warp-cli connect || return 1
+    run_logged warp-cli status
 }
 
 install_sing_box() {
     log_info "Preparing to install sing-box..."
-
-    echo ""
-    echo "Select protocol type:"
-    echo "  1) AnyTLS"
-    echo "  2) VLESS"
-    read -p "Choose protocol (1 or 2, default: 1): " -r protocol_choice
-    protocol_choice=${protocol_choice:-1}
-
-    if [[ "$protocol_choice" == "2" ]]; then
-        protocol_type="vless"
-        log_info "Selected protocol: VLESS"
-        echo -e "${GREEN}Configuring for VLESS${NC}"
-    else
-        protocol_type="anytls"
-        log_info "Selected protocol: AnyTLS"
-        echo -e "${GREEN}Configuring for AnyTLS${NC}"
-    fi
-    echo ""
 
     if command -v sing-box &> /dev/null; then
         local current_version=$(sing-box version 2>/dev/null | head -n1)
@@ -634,9 +665,7 @@ install_sing_box() {
         read -p "Reinstall or update? (Y/n) " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping sing-box binnary installation (already installed)"
-            log_info "Continue to generate the sing-box config.json"
-            generate_sg_config
+            log_info "Skipping sing-box binary installation (already installed)"
             return 0
         fi
     fi
@@ -673,7 +702,6 @@ install_sing_box() {
         return 1
     fi
 
-    setup_sing_box_service
 }
 
 generate_sg_config() {
@@ -692,24 +720,10 @@ generate_sg_config() {
         log_error "Failed to generate UUID"
         return 1
     fi
-    
-    if [[ "$protocol_type" == "anytls" ]]; then
-        # AnyTLS Password. 
-        log_info "Generating Password..."
-        if sing-box generate uuid > /etc/sing-box/password.txt 2>> "$LOG_FILE"; then
-            chmod 600 /etc/sing-box/password.txt
-            anytls_password=$(cat /etc/sing-box/password.txt)
-            log_success "Password generated"
-        else
-            log_error "Failed to generate password"
-            return 1
-        fi
-    fi
-
     chmod 600 /etc/sing-box/reality-keypair.txt /etc/sing-box/uuid.txt
 
-    short_id=$(openssl rand -hex 8)
-    echo $short_id > /etc/sing-box/short_id.txt
+    short_id=$(openssl rand -hex 8) || return 1
+    printf '%s\n' "$short_id" > /etc/sing-box/short_id.txt
     private_key=$(cat /etc/sing-box/reality-keypair.txt | grep "PrivateKey" | awk -F': ' '{print $2}')
     public_key=$(cat /etc/sing-box/reality-keypair.txt | grep "PublicKey" | awk -F': ' '{print $2}')
     uuid=$(cat /etc/sing-box/uuid.txt)
@@ -718,8 +732,8 @@ generate_sg_config() {
     echo "Configure masquerade site for Reality handshake:"
     
     if [[ ${SELF_BACKEND} == "true" ]]; then
-        fake_site="${SERVER_ADDR}"
-        fake_site_port="443"
+        fake_site="127.0.0.1"
+        fake_site_port="18443"
         log_info "Fake site set to: $fake_site:$fake_site_port (self-hosted)"
     else
         fake_site="${FAKE_SITE:-cdnjs.cloudflare.com}"
@@ -727,125 +741,93 @@ generate_sg_config() {
         log_info "SELF_BACKEND is false, using default fake site $fake_site:$fake_site_port"
     fi
     echo ""
-
     rm -f /etc/sing-box/config.json >> "$LOG_FILE" 2>&1
-    
-    if [[ "$protocol_type" == "vless" ]]; then
-        echo -e "${YELLOW}[VLESS Configuration]${NC}"
-        echo "  • Server name [Inbound Address]: $SERVER_ADDR"
-        echo "  • Reality short ID: $short_id"
-        echo "  • Reality public key: $public_key"
-        echo "  • UUID: $uuid"
-        echo "  • Fake site: $fake_site:$fake_site_port"
-        create_vless_json /etc/sing-box/vless.json
-        ln -sf /etc/sing-box/vless.json /etc/sing-box/config.json
-        log_info "VLESS configuration linked"
-    else
-        echo -e "${YELLOW}[AnyTLS Configuration]${NC}"
-        echo "  • Username: admin007"
-        echo "  • Password: $anytls_password"
-        echo "  • Server name [Inbound Address]: $SERVER_ADDR"
-        echo "  • Reality short ID: $short_id"
-        echo "  • Reality public key: $public_key"
-        echo "  • Fake site: $fake_site:$fake_site_port"
-        create_anytls_json /etc/sing-box/anyTLS.json
-        ln -sf /etc/sing-box/anyTLS.json /etc/sing-box/config.json
-        log_info "AnyTLS configuration linked"
-    fi
+    echo -e "${YELLOW}[VLESS Configuration]${NC}"
+    echo "  • Server name [Inbound Address]: $SERVER_ADDR"
+    echo "  • Reality short ID: $short_id"
+    echo "  • Reality public key: $public_key"
+    echo "  • UUID: $uuid"
+    echo "  • Fake site: $fake_site:$fake_site_port"
+    create_vless_json /etc/sing-box/vless.json || return 1
+    ln -sf /etc/sing-box/vless.json /etc/sing-box/config.json || return 1
+    log_info "VLESS configuration linked"
     
     log_success "sing-box configuration created with variables"
 }
 
+generate_qr_svg() {
+    local content=$1
+    local output_file=$2
+    local temporary_file
+
+    temporary_file=$(mktemp "${output_file}.XXXXXX") || {
+        log_error "Failed to create a temporary QR file"
+        return 1
+    }
+    if ! run_logged qrencode -t SVG -m 4 -o "$temporary_file" "$content"; then
+        rm -f "$temporary_file"
+        log_error "Failed to generate QR code"
+        return 1
+    fi
+    if ! run_logged sed -i \
+        's/width="[^"]*"/width="256px"/; s/height="[^"]*"/height="256px"/' \
+        "$temporary_file" ||
+        ! grep -q '<svg width="256px" height="256px"' "$temporary_file"; then
+        rm -f "$temporary_file"
+        log_error "Failed to set QR code dimensions to 256x256 pixels"
+        return 1
+    fi
+    if ! run_logged mv -f "$temporary_file" "$output_file"; then
+        rm -f "$temporary_file"
+        log_error "Failed to save QR code to $output_file"
+        return 1
+    fi
+}
+
 generate_subscription() {
-    log_info "Generating subscription link..."
+    log_info "Generating VLESS subscription link..."
 
     if [[ ! -f /etc/sing-box/config.json ]]; then
         log_error "Config file not found: /etc/sing-box/config.json"
         return 1
     fi
-    
-    if [[ "$protocol_type" == "vless" ]]; then
-        local uuid=$(jq -r '.inbounds[0].users[0].uuid' /etc/sing-box/config.json 2>/dev/null)
-        local flow=$(jq -r '.inbounds[0].users[0].flow' /etc/sing-box/config.json 2>/dev/null)
-        local port=$(jq -r '.inbounds[0].listen_port' /etc/sing-box/config.json 2>/dev/null)
-        local sni=$(jq -r '.inbounds[0].tls.server_name' /etc/sing-box/config.json 2>/dev/null)
-        local pbk=$(cat /etc/sing-box/reality-keypair.txt | grep "PublicKey" | awk -F': ' '{print $2}')
-        local sid=$(jq -r '.inbounds[0].tls.reality.short_id[0]' /etc/sing-box/config.json 2>/dev/null)
 
-        if [[ -z "$uuid" || -z "$port" ]]; then
-            log_error "Failed to read VLESS parameters from config"
-            return 1
-        fi
-        local server_addr="${SERVER_ADDR:-localhost}"
-        local vless_url="vless://${uuid}@${server_addr}:${port}?encryption=none&flow=${flow}&type=none&security=reality&pbk=${pbk}&sid=${sid}&sni=${sni}&fp=chrome#VLESS"
+    local uuid flow port sni pbk sid server_addr vless_url
+    uuid=$(jq -r '.inbounds[0].users[0].uuid' /etc/sing-box/config.json 2>/dev/null)
+    flow=$(jq -r '.inbounds[0].users[0].flow' /etc/sing-box/config.json 2>/dev/null)
+    port=$(jq -r '.inbounds[0].listen_port' /etc/sing-box/config.json 2>/dev/null)
+    sni=$(jq -r '.inbounds[0].tls.server_name' /etc/sing-box/config.json 2>/dev/null)
+    pbk=$(awk -F': ' '/^PublicKey: / {print $2}' /etc/sing-box/reality-keypair.txt)
+    sid=$(jq -r '.inbounds[0].tls.reality.short_id[0]' /etc/sing-box/config.json 2>/dev/null)
 
-        echo ""
-        echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-        echo -e "${GREEN}VLESS Subscription Link${NC}"
-        echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-        echo ""
-        echo "Link: $vless_url"
-        echo ""
-        echo "Details:"
-        echo "  • UUID: $uuid"
-        echo "  • Server: $sni"
-        echo "  • Port: $port"
-        echo "  • Public key (pbk): $pbk"
-        echo "  • Short ID (sid): $sid"
-        echo "  • Flow: $flow"
-        echo "  • Fake site (reality): $fake_site:$fake_site_port"
-        echo ""
-
-        if command -v qrencode &> /dev/null; then
-            echo "$vless_url" | qrencode -t ANSI256
-        fi
-
-        echo "$vless_url" > /etc/sing-box/vless-subscription.txt
-        log_success "VLESS subscription generated and saved to /etc/sing-box/vless-subscription.txt"
-
-    else
-        #　AnyTLS subscription generation
-        local username=$(jq -r '.inbounds[0].users[0].name' /etc/sing-box/config.json 2>/dev/null)
-        local password=$(jq -r '.inbounds[0].users[0].password' /etc/sing-box/config.json 2>/dev/null)
-        local port=$(jq -r '.inbounds[0].listen_port' /etc/sing-box/config.json 2>/dev/null)
-        local sni=$(jq -r '.inbounds[0].tls.server_name' /etc/sing-box/config.json 2>/dev/null)
-        local pbk=$(cat /etc/sing-box/reality-keypair.txt | grep "PublicKey" | awk -F': ' '{print $2}')
-        local sid=$(jq -r '.inbounds[0].tls.reality.short_id[0]' /etc/sing-box/config.json 2>/dev/null)
-
-        if [[ -z "$username" || -z "$password" || -z "$port" ]]; then
-            log_error "Failed to read AnyTLS parameters from config"
-            return 1
-        fi
-
-        local server_addr="${SERVER_ADDR:-localhost}"
-        local anytls_url="anytls://${password}@${server_addr}:${port}?sni=${sni}&fp=chrome&pbk=${pbk}&sid=${sid}&#SingBox-AnyTLS"
-
-        echo ""
-        echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-        echo -e "${GREEN}AnyTLS Subscription Link${NC}"
-        echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-        echo ""
-        echo "Link: $anytls_url"
-        echo ""
-        echo "Details:"
-        echo "  • Username: $username"
-        echo "  • Password: $password"
-        echo "  • Port: $port"
-        echo "  • Server: $server_addr"
-        echo "  • SNI: $sni"
-        echo "  • Public key (pbk): $pbk"
-        echo "  • Short ID (sid): $sid"
-        echo "  • Fake site (reality): $fake_site:$fake_site_port"
-        echo ""
-
-        if command -v qrencode &> /dev/null; then
-            echo "$anytls_url" | qrencode -t ANSI256
-        fi
-
-        echo "$anytls_url" > /etc/sing-box/anytls-subscription.txt
-        log_success "AnyTLS subscription generated and saved to /etc/sing-box/anytls-subscription.txt"
+    if [[ -z "$uuid" || -z "$port" || "$uuid" == "null" || "$port" == "null" ]]; then
+        log_error "Failed to read VLESS parameters from config"
+        return 1
     fi
+    server_addr="${SERVER_ADDR:-localhost}"
+    vless_url="vless://${uuid}@${server_addr}:${port}?encryption=none&flow=${flow}&type=none&security=reality&pbk=${pbk}&sid=${sid}&sni=${sni}&fp=chrome#VLESS"
 
+    echo ""
+    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}VLESS Subscription Link${NC}"
+    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "Link: $vless_url"
+    echo ""
+    echo "Details:"
+    echo "  • UUID: $uuid"
+    echo "  • Server: $sni"
+    echo "  • Port: $port"
+    echo "  • Public key (pbk): $pbk"
+    echo "  • Short ID (sid): $sid"
+    echo "  • Flow: $flow"
+    echo "  • Fake site (reality): $fake_site:$fake_site_port"
+    echo ""
+
+    printf '%s\n' "$vless_url" > /etc/sing-box/vless-subscription.txt || return 1
+    generate_qr_svg "$vless_url" /etc/sing-box/vless-qr.svg || return 1
+    echo "$vless_url" | qrencode -t ANSI256
+    log_success "VLESS subscription and 256x256 QR saved under /etc/sing-box"
     echo ""
 }
 
@@ -956,6 +938,12 @@ setup_permissions() {
 }
 
 run_installation() {
+    if [[ -f /etc/sing-box/installation_complete.flag ]]; then
+        log_info "Installation is already complete; skipping duplicate installation"
+        print_info "Installation is already complete. Remove /etc/sing-box/installation_complete.flag to reinstall."
+        return 0
+    fi
+
     confirm_startup_configuration
     print_header
     echo -e "${BLUE}Installation Wizard${NC}"
@@ -989,8 +977,8 @@ run_installation() {
         # WRAPPLUS_OUTBOUND is empty when not enabled.
         # fake outbound
         WRAPPLUS_OUTBOUND='{
-            "type": "warpplus-out",
-            "tag": "direct"
+            "tag": "warpplus-out",
+            "type": "direct"
         },'
     fi
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -1002,25 +990,29 @@ run_installation() {
     echo "Installation log: $LOG_FILE"
     echo ""
     
-    check_system
-    update_package_manager
-    install_dependencies
-    create_sing_box_user
-    create_directories
-    install_config_files
-    setup_ssl_certificates
-    install_wrapplus
-    install_sing_box
-    generate_sg_config
-    validate_nginx_config
-    setup_permissions
-    setup_nginx_service
-    
-    if [[ -n "$PROTOCOL_TYPE" ]]; then
-        generate_subscription
-        touch /etc/sing-box/installation_complete.flag
-        log_success "Installation completed successfully"
+    check_system || return 1
+    update_package_manager || return 1
+    install_dependencies || return 1
+    create_sing_box_user || return 1
+    create_directories || return 1
+    install_config_files || return 1
+    setup_ssl_certificates || return 1
+    if [[ "$ENABLE_WARPPLUS" == "true" ]]; then
+        install_wrapplus || return 1
     fi
+    install_sing_box || return 1
+    generate_sg_config || return 1
+    setup_sing_box_service || return 1
+    validate_nginx_config || return 1
+    setup_permissions || return 1
+    setup_nginx_service || return 1
+    generate_subscription || return 1
+    install_singmanager_command || return 1
+    touch /etc/sing-box/installation_complete.flag || {
+        log_error "Failed to record installation completion"
+        return 1
+    }
+    log_success "Installation completed successfully"
 
     pause_menu
 }
@@ -1068,7 +1060,7 @@ create_vless_json() {
             "type": "vless",
             "tag": "vlessAndReality-inbound",
             "listen": "::",
-            "listen_port": 21443,
+            "listen_port": 443,
             "users": [
                 {
                     "uuid": "${uuid}",
@@ -1169,158 +1161,6 @@ create_vless_json() {
 VLESS_JSON
 }
 
-create_anytls_json() {
-    local output_file=$1
-    cat > "$output_file" << ANYTLS_JSON
-{
-    "log": {
-        "level": "warn",
-        "output": "/var/log/sing-box.log",
-        "timestamp": true
-    },
-    "dns": {
-        "servers": [
-            {
-                "tag": "dns-cloudflare",
-                "type": "https",
-                "server": "1.1.1.1",
-                "server_port": 443,
-                "path": "/dns-query"
-            },
-            {
-                "tag": "local",
-                "type": "local"
-            }
-        ],
-        "rules": [
-            {
-                "rule_set": [
-                    "geosite-disney",
-                    "geosite-reddit"
-                ],
-                "server": "dns-cloudflare"
-            }
-        ],
-        "final": "dns-cloudflare",
-        "strategy": "prefer_ipv4"
-    },
-    "inbounds": [
-        {
-            "type": "anytls",
-            "tag": "anytlsAndReality-inbound",
-            "listen": "::",
-            "listen_port": 21443,
-            "users": [
-                {
-                    "name": "admin007",
-                    "password": "${anytls_password}"
-                }
-            ],
-            "padding_scheme": [
-                "stop=8",
-                "0=30-30",
-                "1=100-400",
-                "2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
-                "3=9-9,500-1000",
-                "4=500-1000",
-                "5=500-1000",
-                "6=500-1000",
-                "7=500-1000"
-            ],
-            "tls": {
-                "enabled": true,
-                "server_name": "${fake_site}",
-                "reality": {
-                    "enabled": true,
-                    "handshake": {
-                        "server": "${fake_site}",
-                        "server_port": ${fake_site_port}
-                    },
-                    "private_key": "${private_key}",
-                    "short_id": [
-                        "${short_id}"
-                    ]
-                }
-            }
-        }
-    ],
-    "outbounds": [
-        {
-            "type": "direct",
-            "tag": "direct"
-        },
-        ${WRAPPLUS_OUTBOUND}
-        {
-            "type": "block",
-            "tag": "block"
-        }
-    ],
-    "route": {
-        "rules": [
-            {
-                "rule_set": "geoip-cn",
-                "outbound": "block"
-            },
-            {
-                "rule_set": "geosite-cn",
-                "outbound": "block"
-            },
-            {
-                "rule_set": "geoip-private",
-                "outbound": "block"
-            },
-            {
-                "rule_set": [
-                    "geosite-disney",
-                    "geosite-reddit"
-                ],
-                "outbound": "warpplus-out"
-            }
-        ],
-        "rule_set": [
-            {
-                "tag": "geoip-cn",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-cn",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geoip-private",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-disney",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/disney.srs",
-                "download_detour": "direct"
-            },
-            {
-                "tag": "geosite-reddit",
-                "type": "remote",
-                "format": "binary",
-                "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/reddit.srs",
-                "download_detour": "direct"
-            }
-        ],
-        "default_domain_resolver": "dns-cloudflare",
-        "final": "direct"
-    }
-}
-ANYTLS_JSON
-}
-
 # ============================================================================
 # Management menu functions
 # ============================================================================
@@ -1379,69 +1219,41 @@ display_subscription_qr() {
     print_header
     echo -e "${BLUE}📲 Subscription Information${NC}"
     echo ""
-    
-    if ! command -v qrencode &> /dev/null; then
-        print_warn "qrencode is not installed. Showing text links only."
-        echo ""
+
+    if [[ ! -f /etc/sing-box/vless-subscription.txt ]]; then
+        print_error "No VLESS subscription file found"
+        echo "Run installation first to generate the subscription link"
+        pause_menu
+        return 1
     fi
-    
-    if [[ -f /etc/sing-box/vless-subscription.txt ]]; then
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}VLESS Protocol${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        
-        local vless_url=$(cat /etc/sing-box/vless-subscription.txt)
-        echo "Subscription Link:"
-        echo "$vless_url"
-        echo ""
-        
-        if command -v qrencode &> /dev/null; then
-            echo "QR Code:"
+
+    local vless_url
+    IFS= read -r vless_url < /etc/sing-box/vless-subscription.txt
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}VLESS Protocol${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Subscription Link:"
+    echo "$vless_url"
+    echo ""
+
+    if command -v qrencode &> /dev/null; then
+        if generate_qr_svg "$vless_url" /etc/sing-box/vless-qr.svg; then
+            echo "QR Code: /etc/sing-box/vless-qr.svg (256x256 px)"
             echo "$vless_url" | qrencode -t ANSI256
-            echo ""
+        else
+            print_error "Failed to generate the QR code"
         fi
-        
-        echo "Details:"
-        local uuid=$(echo "$vless_url" | grep -oP '(?<=vless://)[^@]+')
-        local server=$(echo "$vless_url" | grep -oP '(?<=@)[^?]+')
-        echo "  • UUID: $uuid"
-        echo "  • Server: $server"
-        echo ""
+    else
+        print_warn "qrencode is not installed; showing the text link only"
     fi
-    
-    if [[ -f /etc/sing-box/anytls-subscription.txt ]]; then
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}AnyTLS Protocol${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        
-        local anytls_url=$(cat /etc/sing-box/anytls-subscription.txt)
-        echo "Subscription Link:"
-        echo "$anytls_url"
-        echo ""
-        
-        if command -v qrencode &> /dev/null; then
-            echo "QR Code:"
-            echo "$anytls_url" | qrencode -t ANSI256
-            echo ""
-        fi
-        
-        echo "Details:"
-        local username=$(echo "$anytls_url" | grep -oP '(?<=anytls://)[^:]+')
-        local password=$(echo "$anytls_url" | grep -oP '(?<=:)[^@]+')
-        local server=$(echo "$anytls_url" | grep -oP '(?<=@)[^?]+')
-        echo "  • Username: $username"
-        echo "  • Password: $password"
-        echo "  • Server: $server"
-        echo ""
-    fi
-    
-    if [[ ! -f /etc/sing-box/vless-subscription.txt ]] && [[ ! -f /etc/sing-box/anytls-subscription.txt ]]; then
-        print_error "No subscription files found"
-        echo "Run installation first to generate subscription links"
-    fi
-    
+
+    echo "Details:"
+    local uuid server
+    uuid=$(echo "$vless_url" | grep -oP '(?<=vless://)[^@]+')
+    server=$(echo "$vless_url" | grep -oP '(?<=@)[^?]+')
+    echo "  • UUID: $uuid"
+    echo "  • Server: $server"
     echo ""
     pause_menu
 }
