@@ -16,6 +16,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set Nginx release URL
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          script = Path("singmanager")
+          content = script.read_text()
+          content, replacements = re.subn(
+              r'(?<=/releases/download/)[^/"]+(?=/nginx\.tar\.gz")',
+              lambda _: os.environ["RELEASE_VERSION"],
+              content,
+              count=1,
+          )
+          if replacements != 1:
+              raise SystemExit("Expected exactly one NGINX_RELEASE_URL release version")
+          script.write_text(content)
+          PY
+
       - name: Package nginx
         run: |
           mkdir -p release
