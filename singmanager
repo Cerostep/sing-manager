@@ -27,11 +27,6 @@ NGINX_RELEASE_URL="https://github.com/Cerostep/sing-manager/releases/download/v1
 # sing-box installer settings.
 SING_BOX_VERSION_DEFAULT="1.13.8"
 SING_BOX_INSTALL_URL="https://sing-box.app/install.sh"
-# Cloudflare credentials are required only when issuing an Nginx certificate.
-# Leave them empty to enter them securely during installation.
-CF_Email=""
-CF_Token=""
-
 # WRAPPLUS_OUTBOUND is an optional outbound configuration snippet for sing-box.
 # through the Cloudflare WARP+ service.  It is enabled by default.  Set to "false" to disable.
 ENABLE_WARPPLUS="true"
@@ -41,10 +36,9 @@ SERVER_ADDR=""
 FAKE_SITE="cdnjs.cloudflare.com"
 FAKE_SITE_PORT="443"
 LOG_FILE="/tmp/install.log"
-ACME_SH="/root/.acme.sh/acme.sh"
-ACME_CERT_DIR="/etc/nginx/ssl"
-ACME_CERT_FILE="$ACME_CERT_DIR/fullchain.cer"
-ACME_KEY_FILE="$ACME_CERT_DIR/private.key"
+NGINX_CERT_FILE="/etc/nginx/ssl/fullchain.cer"
+NGINX_KEY_FILE="/etc/nginx/ssl/private.key"
+NGINX_CONFIG_VALID="false"
 
 # Preserve terminal stderr for controlled messages; command diagnostics go only
 # to the installation log.
@@ -120,16 +114,6 @@ print_header() {
     echo ""
 }
 
-mask_secret() {
-    local secret=$1
-
-    if [[ -z "$secret" ]]; then
-        echo "Not configured"
-    else
-        echo "Configured (hidden)"
-    fi
-}
-
 show_startup_configuration() {
     echo -e "${BLUE}Main script configuration (edit the User configuration section at the top of this script)${NC}"
     echo -e "${RED}  • SELF_BACKEND: $SELF_BACKEND"
@@ -140,8 +124,6 @@ show_startup_configuration() {
     echo -e "${GREEN}  • FAKE_SITE_PORT: $FAKE_SITE_PORT"
     echo -e "${RED}  • SERVER_ADDR: ${SERVER_ADDR:-Not configured}"
     echo -e "${GREEN}  • ENABLE_WARPPLUS: ${ENABLE_WARPPLUS:-false}"
-    echo -e "${RED}  • CF_Email: ${CF_Email:-Not configured}"
-    echo -e "${GREEN}  • CF_Token: $(mask_secret "$CF_Token")"
     echo ""
 }
 
@@ -160,16 +142,123 @@ confirm_startup_configuration() {
 print_menu() {
     echo -e "${BLUE}📋 Main Menu${NC}"
     echo ""
-    if [[ -f /etc/sing-box/installation_complete.flag ]]; then
-        echo -e "${YELLOW}Installation already completed. To reinstall, remove /etc/sing-box/installation_complete.flag and run the script again.${NC}"
-    else
-        echo -e "  ${GREEN}0${NC}) Install proxy server (sing-box) and dependencies"
-    fi
+    echo -e "  ${GREEN}0${NC}) Install or repair proxy server (sing-box) and dependencies"
     echo -e "  ${GREEN}1${NC}) View sing-box service status"
     echo -e "  ${GREEN}2${NC}) Display subscription QR codes"
     echo -e "  ${GREEN}3${NC}) Service control (start/stop/restart)"
     echo -e "  ${GREEN}4${NC}) Exit"
     echo ""
+}
+
+installation_is_valid() {
+    local config_file="/etc/sing-box/config.json"
+    local vless_config_file="/etc/sing-box/vless.json"
+    local service_file="/etc/systemd/system/sing-box.service"
+    local subscription_file="/etc/sing-box/vless-subscription.txt"
+    local qr_file="/etc/sing-box/vless-qr.svg"
+    local required_commands=(curl wget openssl jq qrencode unzip)
+    local required_command subscription_uuid root_home expected_fake_site
+    local expected_fake_site_port expected_outbound_type
+    local expected_port="443"
+    local installed_port
+
+    if [[ ! -f /etc/sing-box/installation_complete.flag ]]; then
+        log_warn "Installation completion marker is missing"
+        return 1
+    fi
+    if [[ ! -x /usr/bin/sing-box ]] || ! /usr/bin/sing-box version >> "$LOG_FILE" 2>&1; then
+        log_warn "sing-box executable is missing from /usr/bin or not working"
+        return 1
+    fi
+    for required_command in "${required_commands[@]}"; do
+        if ! command -v "$required_command" &> /dev/null; then
+            log_warn "Required dependency $required_command is missing"
+            return 1
+        fi
+    done
+    if [[ ! -L "$config_file" ]] ||
+        [[ "$(readlink -- "$config_file" 2>/dev/null)" != "$vless_config_file" ]]; then
+        log_warn "sing-box config.json does not link to the managed VLESS configuration"
+        return 1
+    fi
+    if [[ ! -s "$config_file" ]] || ! /usr/bin/sing-box check -c "$config_file" >> "$LOG_FILE" 2>&1; then
+        log_warn "sing-box configuration is missing or invalid"
+        return 1
+    fi
+    if [[ "$SELF_BACKEND" == "true" ]]; then
+        expected_fake_site="127.0.0.1"
+        expected_fake_site_port=18443
+    else
+        expected_fake_site="${FAKE_SITE:-cdnjs.cloudflare.com}"
+        expected_fake_site_port="${FAKE_SITE_PORT:-443}"
+    fi
+    if [[ "$ENABLE_WARPPLUS" == "true" ]]; then
+        expected_outbound_type="socks"
+    else
+        expected_outbound_type="direct"
+    fi
+    if ! jq -e \
+        --arg fake_site "$expected_fake_site" \
+        --argjson fake_site_port "$expected_fake_site_port" \
+        --arg outbound_type "$expected_outbound_type" \
+        '.inbounds[0].type == "vless" and
+         .inbounds[0].tls.server_name == $fake_site and
+         .inbounds[0].tls.reality.enabled == true and
+         .inbounds[0].tls.reality.handshake.server == $fake_site and
+         .inbounds[0].tls.reality.handshake.server_port == $fake_site_port and
+         (.inbounds[0].users[0].uuid | type == "string" and length > 0) and
+         any(.outbounds[]; .tag == "warpplus-out" and .type == $outbound_type)' \
+        "$config_file" >/dev/null 2>&1; then
+        log_warn "sing-box configuration does not match the selected deployment settings"
+        return 1
+    fi
+    installed_port=$(jq -r '.inbounds[0].listen_port' "$config_file" 2>/dev/null)
+    if [[ "$installed_port" != "$expected_port" ]]; then
+        log_warn "sing-box is listening on unexpected port ${installed_port:-unknown}; expected $expected_port"
+        return 1
+    fi
+    if [[ ! -s "$service_file" ]] ||
+        ! grep -Fq 'User=sing-box' "$service_file" ||
+        ! grep -Fq 'ExecStart=/usr/bin/sing-box -D /var/lib/sing-box -c /etc/sing-box/config.json run' "$service_file"; then
+        log_warn "sing-box systemd service unit is missing or incorrect"
+        return 1
+    fi
+    if [[ ! -s "$subscription_file" ]] || ! grep -q '^vless://' "$subscription_file"; then
+        log_warn "VLESS subscription file is missing or invalid"
+        return 1
+    fi
+    subscription_uuid=$(jq -r '.inbounds[0].users[0].uuid' "$config_file")
+    if ! grep -Fq "vless://${subscription_uuid}@" "$subscription_file" ||
+        { [[ -n "$SERVER_ADDR" ]] && ! grep -Fq "@${SERVER_ADDR}:${installed_port}?" "$subscription_file"; }; then
+        log_warn "VLESS subscription does not match the installed configuration"
+        return 1
+    fi
+    if [[ ! -s "$qr_file" ]] ||
+        ! grep -q '<svg width="256px" height="256px"' "$qr_file"; then
+        log_warn "256x256 VLESS QR code is missing or invalid"
+        return 1
+    fi
+    if [[ ! -x /usr/local/bin/singmanager ]] ||
+        ! cmp -s "$(readlink -f -- "${BASH_SOURCE[0]}")" /usr/local/bin/singmanager; then
+        log_warn "Installed /usr/local/bin/singmanager command is missing or outdated"
+        return 1
+    fi
+    root_home=$(getent passwd root | cut -d: -f6)
+    if [[ -z "$root_home" ]] || ! grep -Fq '/usr/local/bin' "$root_home/.bashrc"; then
+        log_warn "Root user's .bashrc does not include /usr/local/bin"
+        return 1
+    fi
+    if [[ "$SELF_BACKEND" == "true" ]] && ! command -v nginx &> /dev/null; then
+        log_warn "Nginx is enabled but not installed"
+        return 1
+    fi
+    if [[ "$SELF_BACKEND" == "true" ]] &&
+        { [[ ! -s /etc/nginx/nginx.conf ]] || [[ ! -s /etc/nginx/conf.d/mask.conf ]]; }; then
+        log_warn "Nginx is enabled but its main or site configuration is missing"
+        return 1
+    fi
+
+    return 0
 }
 
 print_success() {
@@ -364,6 +453,41 @@ install_dependencies() {
     log_success "All dependencies installed"
 }
 
+detect_server_addr() {
+    if [[ -n "$SERVER_ADDR" ]]; then
+        log_info "Using configured server address: $SERVER_ADDR"
+        return 0
+    fi
+
+    while true; do
+        if command -v curl &> /dev/null &&
+            SERVER_ADDR=$(curl -fsS --max-time 15 https://api.ipify.org) &&
+            [[ -n "$SERVER_ADDR" ]]; then
+            log_info "Detected server address: $SERVER_ADDR"
+            return 0
+        fi
+
+        log_warn "Could not automatically detect the server's public IP address."
+        print_warn "Enter the public IP address or domain name clients will use to connect."
+        if ! read -p "Server address (Enter to retry detection, or q to cancel installation): " -r SERVER_ADDR; then
+            SERVER_ADDR=""
+            return 1
+        fi
+        case "$SERVER_ADDR" in
+            [Qq])
+                SERVER_ADDR=""
+                return 1
+                ;;
+            "")
+                ;;
+            *)
+                log_info "Using manually entered server address: $SERVER_ADDR"
+                return 0
+                ;;
+        esac
+    done
+}
+
 create_directories() {
     log_info "Creating directory structure..."
 
@@ -476,86 +600,9 @@ install_nginx_release() {
     log_success "Nginx site files and configuration installed from Release"
 }
 
-setup_ssl_certificates() {
-    if [[ "${SELF_BACKEND}" != "true" ]]; then
-        log_info "SELF_BACKEND is false, skipping SSL certificates setup"
-        return 0
-    fi
-
-    log_info "SSL certificates setup ready"
-}
-
-require_cloudflare_credentials() {
-    if [[ -z "${CF_Email:-}" ]]; then
-        read -r -p "Cloudflare account email (CF_Email): " CF_Email
-    fi
-    if [[ -z "${CF_Token:-}" ]]; then
-        read -r -s -p "Cloudflare API token (CF_Token): " CF_Token
-        echo
-    fi
-
-    if [[ -z "$CF_Email" || -z "$CF_Token" ]]; then
-        log_error "Nginx certificate issuance requires CF_Email and CF_Token"
-        return 1
-    fi
-
-    export CF_Email CF_Token
-}
-
-install_acme_sh() {
-    if [[ -x "$ACME_SH" ]]; then
-        return 0
-    fi
-
-    log_info "Installing acme.sh..."
-    if ! curl -fsSL https://get.acme.sh | sh -s email="$CF_Email" >> "$LOG_FILE"; then
-        log_error "Failed to install acme.sh"
-        return 1
-    fi
-    [[ -x "$ACME_SH" ]]
-}
-
-issue_nginx_certificate() {
-    local domain=$1
-
-    if [[ "$domain" != *.* ]]; then
-        log_error "Nginx certificate issuance requires a valid public domain name"
-        return 1
-    fi
-    require_cloudflare_credentials || return 1
-    install_acme_sh || return 1
-
-    log_info "Requesting Nginx certificate through Cloudflare DNS validation..."
-    if ! run_logged "$ACME_SH" --issue --dns dns_cf -d "$domain" -d "*.$domain"; then
-        log_error "Cloudflare DNS certificate issuance failed"
-        return 1
-    fi
-
-    if ! run_logged mkdir -p "$ACME_CERT_DIR"; then
-        log_error "Failed to create the certificate directory"
-        return 1
-    fi
-    if ! run_logged "$ACME_SH" --install-cert -d "$domain" --key-file "$ACME_KEY_FILE" --fullchain-file "$ACME_CERT_FILE" --reloadcmd "chown root:root $ACME_CERT_FILE $ACME_KEY_FILE && chmod 600 $ACME_KEY_FILE && (systemctl reload nginx >/dev/null 2>&1 || true)"; then
-        log_error "Failed to install the Nginx certificate"
-        return 1
-    fi
-    if ! run_logged chown -R root:root "$ACME_CERT_DIR"; then
-        log_error "Failed to set certificate ownership"
-        return 1
-    fi
-    if ! run_logged chmod 700 "$ACME_CERT_DIR"; then
-        log_error "Failed to secure the certificate directory"
-        return 1
-    fi
-    if ! run_logged chmod 600 "$ACME_KEY_FILE"; then
-        log_error "Failed to secure the certificate key"
-        return 1
-    fi
-
-    log_success "Nginx certificate installed at $ACME_CERT_DIR"
-}
-
 validate_nginx_config() {
+    NGINX_CONFIG_VALID="false"
+
     if [[ "${SELF_BACKEND}" != "true" ]]; then
         log_info "SELF_BACKEND is false, skipping nginx validation"
         return 0
@@ -566,11 +613,19 @@ validate_nginx_config() {
         return 0
     fi
 
+    if [[ ! -s "$NGINX_CERT_FILE" || ! -s "$NGINX_KEY_FILE" ]]; then
+        log_warn "Nginx TLS certificate or key is missing; request and install them manually before starting Nginx"
+        log_warn "Expected certificate: $NGINX_CERT_FILE; private key: $NGINX_KEY_FILE"
+        log_warn "Skipping Nginx validation and startup; sing-box installation will continue"
+        return 0
+    fi
+
     log_info "Validating nginx configuration..."
 
     if ! nginx -t >> "$LOG_FILE" 2>&1; then
-        log_error "nginx configuration test failed. Please check configuration files"
+        log_warn "Nginx configuration test failed; see $LOG_FILE. Skipping Nginx startup and continuing installation"
     else
+        NGINX_CONFIG_VALID="true"
         log_success "nginx configuration OK"
     fi
 }
@@ -586,14 +641,23 @@ setup_nginx_service() {
         return 0
     fi
 
-    log_info "Configuring nginx service..."
-
-    if ! run_step "nginx enabled for autostart" "Failed to enable nginx autostart" systemctl enable nginx; then
-        log_warn "Nginx can still be started manually"
+    if [[ "$NGINX_CONFIG_VALID" != "true" ]]; then
+        log_warn "Nginx configuration is not ready; skipping Nginx service startup"
+        return 0
     fi
 
-    if ! run_step "nginx service configured and started" "Failed to start nginx" systemctl restart nginx; then
-        return 1
+    log_info "Configuring nginx service..."
+
+    if run_logged systemctl enable nginx; then
+        log_success "nginx enabled for autostart"
+    else
+        log_warn "Failed to enable Nginx autostart; see $LOG_FILE"
+    fi
+
+    if run_logged systemctl restart nginx; then
+        log_success "nginx service configured and started"
+    else
+        log_warn "Failed to start Nginx; see $LOG_FILE. Continuing sing-box installation"
     fi
 }
 
@@ -662,11 +726,15 @@ install_sing_box() {
     if command -v sing-box &> /dev/null; then
         local current_version=$(sing-box version 2>/dev/null | head -n1)
         log_warn "sing-box binary already installed (version: $current_version)"
-        read -p "Reinstall or update? (Y/n) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping sing-box binary installation (already installed)"
-            return 0
+        if [[ "$INSTALL_REPAIR_MODE" != "true" ]]; then
+            read -p "Reinstall or update? (Y/n) " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log_info "Skipping sing-box binary installation (already installed)"
+                return 0
+            fi
+        else
+            log_warn "Installation is incomplete or invalid; replacing the sing-box binary"
         fi
     fi
 
@@ -741,7 +809,6 @@ generate_sg_config() {
         log_info "SELF_BACKEND is false, using default fake site $fake_site:$fake_site_port"
     fi
     echo ""
-    rm -f /etc/sing-box/config.json >> "$LOG_FILE" 2>&1
     echo -e "${YELLOW}[VLESS Configuration]${NC}"
     echo "  • Server name [Inbound Address]: $SERVER_ADDR"
     echo "  • Reality short ID: $short_id"
@@ -749,6 +816,7 @@ generate_sg_config() {
     echo "  • UUID: $uuid"
     echo "  • Fake site: $fake_site:$fake_site_port"
     create_vless_json /etc/sing-box/vless.json || return 1
+    rm -f /etc/sing-box/config.json >> "$LOG_FILE" 2>&1 || return 1
     ln -sf /etc/sing-box/vless.json /etc/sing-box/config.json || return 1
     log_info "VLESS configuration linked"
     
@@ -764,17 +832,9 @@ generate_qr_svg() {
         log_error "Failed to create a temporary QR file"
         return 1
     }
-    if ! run_logged qrencode -t SVG -m 4 -o "$temporary_file" "$content"; then
+    if ! run_logged qrencode -t ANSIUTF8 -m 1 -l L -o "$temporary_file" "$content"; then
         rm -f "$temporary_file"
         log_error "Failed to generate QR code"
-        return 1
-    fi
-    if ! run_logged sed -i \
-        's/width="[^"]*"/width="256px"/; s/height="[^"]*"/height="256px"/' \
-        "$temporary_file" ||
-        ! grep -q '<svg width="256px" height="256px"' "$temporary_file"; then
-        rm -f "$temporary_file"
-        log_error "Failed to set QR code dimensions to 256x256 pixels"
         return 1
     fi
     if ! run_logged mv -f "$temporary_file" "$output_file"; then
@@ -826,8 +886,7 @@ generate_subscription() {
 
     printf '%s\n' "$vless_url" > /etc/sing-box/vless-subscription.txt || return 1
     generate_qr_svg "$vless_url" /etc/sing-box/vless-qr.svg || return 1
-    echo "$vless_url" | qrencode -t ANSI256
-    log_success "VLESS subscription and 256x256 QR saved under /etc/sing-box"
+    log_success "VLESS subscription QR saved under /etc/sing-box"
     echo ""
 }
 
@@ -840,10 +899,10 @@ setup_sing_box_service() {
     fi
 
     local service_file="/etc/systemd/system/sing-box.service"
+    local service_action
 
-    if [[ ! -f "$service_file" ]]; then
-        log_info "Creating sing-box systemd service file..."
-        cat > "$service_file" << 'SYSTEMD_EOF'
+    log_info "Installing sing-box systemd service file..."
+    if ! cat > "$service_file" << 'SYSTEMD_EOF'
 [Unit]
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
@@ -864,12 +923,15 @@ Type=simple
 [Install]
 WantedBy=multi-user.target
 SYSTEMD_EOF
-        chmod 644 "$service_file"
-        systemctl daemon-reload >> "$LOG_FILE" 2>&1
-        log_success "sing-box service file created"
-    else
-        log_info "sing-box service file already exists (skipped)"
+    then
+        log_error "Failed to write sing-box systemd service file"
+        return 1
     fi
+    if ! chmod 644 "$service_file" || ! run_logged systemctl daemon-reload; then
+        log_error "Failed to install or reload sing-box systemd service"
+        return 1
+    fi
+    log_success "sing-box systemd service file installed"
 
     if [[ -f /etc/sing-box/config.json ]]; then
         local log_file=$(jq -r '.log.output' /etc/sing-box/config.json 2>/dev/null || echo "")
@@ -892,9 +954,15 @@ SYSTEMD_EOF
             log_warn "Failed to enable sing-box autostart"
         fi
 
-        log_info "Starting sing-box service..."
-        if systemctl start sing-box >> "$LOG_FILE" 2>&1; then
-            log_info "sing-box start command sent"
+        if [[ "$INSTALL_REPAIR_MODE" == "true" ]]; then
+            log_info "Restarting sing-box service with repaired configuration..."
+            service_action="restart"
+        else
+            log_info "Starting sing-box service..."
+            service_action="start"
+        fi
+        if systemctl "$service_action" sing-box >> "$LOG_FILE" 2>&1; then
+            log_info "sing-box $service_action command sent"
             sleep 2
             if systemctl is-active --quiet sing-box; then
                 log_success "sing-box service is running"
@@ -904,7 +972,7 @@ SYSTEMD_EOF
                 return 1
             fi
         else
-            log_error "Failed to start sing-box service"
+            log_error "Failed to $service_action sing-box service"
             log_info "Check configuration under /etc/sing-box/"
             return 1
         fi
@@ -938,11 +1006,13 @@ setup_permissions() {
 }
 
 run_installation() {
-    if [[ -f /etc/sing-box/installation_complete.flag ]]; then
-        log_info "Installation is already complete; skipping duplicate installation"
-        print_info "Installation is already complete. Remove /etc/sing-box/installation_complete.flag to reinstall."
+    if installation_is_valid; then
+        log_success "Installation check passed; existing installation is healthy"
+        display_subscription_qr
         return 0
     fi
+    INSTALL_REPAIR_MODE="true"
+    log_warn "Installation is incomplete or invalid; running repair installation and overwriting managed configuration"
 
     confirm_startup_configuration
     print_header
@@ -989,14 +1059,18 @@ run_installation() {
 
     echo "Installation log: $LOG_FILE"
     echo ""
-    
+
     check_system || return 1
     update_package_manager || return 1
     install_dependencies || return 1
+    if ! detect_server_addr; then
+        log_warn "Installation cancelled because no server address was provided"
+        return 0
+    fi
+    rm -f /etc/sing-box/installation_complete.flag
     create_sing_box_user || return 1
     create_directories || return 1
     install_config_files || return 1
-    setup_ssl_certificates || return 1
     if [[ "$ENABLE_WARPPLUS" == "true" ]]; then
         install_wrapplus || return 1
     fi
@@ -1014,7 +1088,7 @@ run_installation() {
     }
     log_success "Installation completed successfully"
 
-    pause_menu
+    display_subscription_qr
 }
 
 # ============================================================================
@@ -1239,8 +1313,8 @@ display_subscription_qr() {
 
     if command -v qrencode &> /dev/null; then
         if generate_qr_svg "$vless_url" /etc/sing-box/vless-qr.svg; then
-            echo "QR Code: /etc/sing-box/vless-qr.svg (256x256 px)"
-            echo "$vless_url" | qrencode -t ANSI256
+            echo "QR Code: /etc/sing-box/vless-qr.svg"
+            echo "$vless_url" | qrencode -t ANSIUTF8 -m 1 -l L
         else
             print_error "Failed to generate the QR code"
         fi
@@ -1441,8 +1515,18 @@ show_service_actions() {
 
 
 main_loop() {
+    local show_server_addr_notice="true"
+
     while true; do
         print_header
+        if [[ "$show_server_addr_notice" == "true" ]] &&
+            [[ -z "$SERVER_ADDR" ]] &&
+            [[ ! -f /etc/sing-box/installation_complete.flag ]]; then
+            print_warn "SERVER_ADDR is not set. Installation needs your public IP or domain for client subscriptions."
+            print_info "The installer will try automatic detection; if that fails, you can enter the address manually."
+            echo ""
+        fi
+        show_server_addr_notice="false"
         print_menu
         
         read -p "Choose an option (0-4): " choice
