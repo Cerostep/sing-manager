@@ -8,43 +8,40 @@
 #   - Idempotent installation and command setup in /usr/local/bin
 #   - Interactive service management
 #   - VLESS subscription QR code (256x256 px SVG)
-#   - Complete logging to /tmp/install.log
+#   - Complete logging to /tmp/install.log or a private temporary fallback
 ################################################################################
 
 set -o pipefail
 
-# ============================================================================
-# User configuration
-# Edit the values in this section before running the script.  Configuration is
-# intentionally kept in this script; /etc/singmanager.conf is not read.
-# ============================================================================
-# Set to true to install and use Nginx as the self-hosted backend. [true/false]
-SELF_BACKEND="false"
-NGINX_CERT_FILE="/etc/nginx/ssl/fullchain.cer"
-NGINX_KEY_FILE="/etc/nginx/ssl/private.key"
-NGINX_CONFIG_VALID="false"
-# Required with SELF_BACKEND=true. The domain must be hosted on Cloudflare DNS.
-SELF_DOMAIN=""
-# Contact address used to register the Let's Encrypt ACME account.
-ACME_EMAIL=""
-
-# Required only when SELF_BACKEND=true.  It must point to a GitHub Release
-# archive containing nginx/nginx.conf and nginx/html/.
-NGINX_RELEASE_URL="https://github.com/Cerostep/sing-manager/releases/download/v1.0.0/nginx.tar.gz"
-# This release supports only this sing-box version.
-SING_BOX_VERSION="1.13.8"
-SING_BOX_INSTALL_URL="https://sing-box.app/install.sh"
-
-# WRAPPLUS_OUTBOUND is an optional outbound configuration snippet for sing-box.
-# through the Cloudflare WARP+ service.  It is enabled by default.  Set to "false" to disable.
+# @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+# User configuration — edit the values below before running the script.                                           @@
+# Configuration is intentionally kept in this script; /etc/singmanager.conf is not read.                          @@
+#                                                                                                                 @@
+# Set to true to install and use Nginx as the self-hosted backend. [true/false]                                   @@
+SELF_BACKEND="false"                                                                                             
+NGINX_CERT_FILE="/etc/nginx/ssl/fullchain.cer"                                                                   
+NGINX_KEY_FILE="/etc/nginx/ssl/private.key"                                                                      
+NGINX_CONFIG_VALID="false"                                                                                       
+# Required with SELF_BACKEND=true. The domain must be hosted on Cloudflare DNS.                                   @@
+SELF_DOMAIN=""                                                                                                   
+# Contact address used to register the Let's Encrypt ACME account.                                                @@
+ACME_EMAIL=""                                                                                                    
+#                                                                                                                 @@
+# Required only when SELF_BACKEND=true; URL must contain nginx/nginx.conf and nginx/html/.                        @@
+NGINX_RELEASE_URL="https://github.com/Cerostep/sing-manager/releases/download/v1.0.0/nginx.tar.gz"               
+# Set this to any sing-box release version supported by the installer.                                            @@
+SING_BOX_VERSION="1.14.4"                                                                                        
+SING_BOX_INSTALL_URL="https://sing-box.app/install.sh"                                                           
+#                                                                                                                 @@
+# WARP+ outbound support is optional. Set to "true" to enable it.                                                 @@
 ENABLE_WARPPLUS="false"
-
-LOG_FILE="/tmp/install.log"
+#
+# Sing Manager installation script.                                                                               @@
+# @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 # Preserve terminal stderr for controlled messages; command diagnostics go only
 # to the installation log.
 exec 3>&2
-exec 2>>"$LOG_FILE"
 
 # ============================================================================
 # Color definitions
@@ -84,6 +81,24 @@ log_error() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') ${msg}" >> "$LOG_FILE"
 }
 
+initialize_logging() {
+    local fallback_log
+
+    if [[ -L "$LOG_FILE" || ( -e "$LOG_FILE" && ! -f "$LOG_FILE" ) ]] ||
+        ! { : >> "$LOG_FILE"; } 2>/dev/null; then
+        fallback_log=$(mktemp /tmp/install.XXXXXX) || {
+            print_error "Unable to create a writable installation log"
+            exit 1
+        }
+        LOG_FILE=$fallback_log
+        printf 'Warning: %s is unavailable; using %s\n' "/tmp/install.log" "$LOG_FILE" >&3
+    fi
+    if ! chmod 600 "$LOG_FILE" 2>/dev/null || ! exec 2>>"$LOG_FILE"; then
+        print_error "Unable to secure or open installation log: $LOG_FILE"
+        exit 1
+    fi
+}
+
 # Keep command diagnostics out of the interactive UI while retaining them for
 # troubleshooting. Callers are responsible for presenting a concise result.
 run_logged() {
@@ -102,6 +117,33 @@ run_step() {
 
     log_error "$failure_message"
     return 1
+}
+
+sing_box_version_matches() {
+    local version_output=$1
+    local version_token
+
+    [[ -n "$SING_BOX_VERSION" ]] || return 1
+    while IFS= read -r version_token; do
+        if [[ "$version_token" == "$SING_BOX_VERSION" ]]; then
+            return 0
+        fi
+    done < <(printf '%s\n' "$version_output" | tr '[:space:]' '\n')
+    return 1
+}
+
+validate_sing_box_config() {
+    local config_file=$1
+
+    if [[ ! -s "$config_file" ]]; then
+        log_error "Generated sing-box configuration is missing or empty: $config_file"
+        return 1
+    fi
+    if ! run_logged sing-box check -c "$config_file"; then
+        log_error "Generated configuration is not supported by sing-box version $SING_BOX_VERSION; see $LOG_FILE"
+        return 1
+    fi
+    log_success "Generated sing-box configuration is valid for version $SING_BOX_VERSION"
 }
 
 # ============================================================================
@@ -140,7 +182,7 @@ confirm_startup_configuration() {
     read -p "Have you configured the variables above and want to continue with the current values? (Y/n): " -n 1 -r
     echo ""
 
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ -n "$REPLY" && ! $REPLY =~ ^[Yy]$ ]]; then
         print_info "Please update the User configuration section at the top of the script and run it again."
         exit 0
     fi
@@ -175,7 +217,7 @@ installation_is_valid() {
     fi
     if [[ ! -x /usr/bin/sing-box ]] ||
         ! installed_version=$(/usr/bin/sing-box version 2>> "$LOG_FILE") ||
-        [[ ! "$installed_version" =~ (^|[[:space:]])${SING_BOX_VERSION//./\\.}([[:space:]]|$) ]]; then
+        ! sing_box_version_matches "$installed_version"; then
         log_warn "sing-box executable is missing, not working, or not version $SING_BOX_VERSION"
         return 1
     fi
@@ -442,7 +484,7 @@ install_dependencies() {
                 log_success "$package installed successfully"
             else
                 log_error "Failed to install $package"
-                exit 1
+                return 1
             fi
         fi
     done
@@ -459,7 +501,7 @@ install_dependencies() {
                     log_success "$wp_package installed successfully"
                 else
                     log_error "Failed to install $wp_package"
-                    exit 1
+                    return 1
                 fi
             fi
         done
@@ -468,7 +510,7 @@ install_dependencies() {
             log_success "Warp GPG key downloaded and converted"
         else
             log_error "Failed to download Warp GPG key"
-            exit 1
+            return 1
         fi
         if dpkg-query -W -f='${Status}' cloudflare-warp 2>/dev/null | grep -q 'install ok installed'; then
             log_info "cloudflare-warp already installed (skipped)"
@@ -935,15 +977,19 @@ install_sing_box() {
     local version_matches="false"
 
     log_info "Preparing to install sing-box..."
+    if [[ -z "$SING_BOX_VERSION" || "$SING_BOX_VERSION" == *[[:space:]]* ]]; then
+        log_error "SING_BOX_VERSION must be set to a sing-box release version"
+        return 1
+    fi
 
     if command -v sing-box &> /dev/null &&
         current_version=$(sing-box version 2>> "$LOG_FILE") &&
         [[ -n "$current_version" ]]; then
-        if [[ "$current_version" =~ (^|[[:space:]])${SING_BOX_VERSION//./\\.}([[:space:]]|$) ]]; then
+        if sing_box_version_matches "$current_version"; then
             version_matches="true"
-            log_warn "Supported sing-box version already installed (version: $current_version)"
+            log_warn "Configured sing-box version already installed (version: $current_version)"
         else
-            log_warn "Installed sing-box version is unsupported; version $SING_BOX_VERSION is required"
+            log_warn "Installed sing-box version does not match configured version $SING_BOX_VERSION"
         fi
 
         if [[ -s "$service_file" ]]; then
@@ -965,7 +1011,7 @@ install_sing_box() {
         if [[ "$INSTALL_REPAIR_MODE" != "true" && "$version_matches" == "true" ]]; then
             read -p "Reinstall or update sing-box? (Y/n) " -n 1 -r
             echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            if [[ -n "$REPLY" && ! $REPLY =~ ^[Yy]$ ]]; then
                 log_info "Skipping sing-box binary installation (already installed)"
                 return 0
             fi
@@ -985,7 +1031,7 @@ install_sing_box() {
 
     if command -v sing-box &> /dev/null; then
         local installed_version=$(sing-box version 2>/dev/null | head -n1)
-        if [[ ! "$installed_version" =~ (^|[[:space:]])${SING_BOX_VERSION//./\\.}([[:space:]]|$) ]]; then
+        if ! sing_box_version_matches "$installed_version"; then
             log_error "Installer did not install the required sing-box version $SING_BOX_VERSION"
             return 1
         fi
@@ -998,6 +1044,9 @@ install_sing_box() {
 }
 
 generate_sg_config() {
+    local config_file="/etc/sing-box/vless.json"
+    local temporary_config
+
     log_info "Generating Reality keypair..."
     if sing-box generate reality-keypair > /etc/sing-box/reality-keypair.txt 2>> "$LOG_FILE"; then
         log_success "Reality keypair generated"
@@ -1042,7 +1091,20 @@ generate_sg_config() {
     echo "  • UUID: $uuid"
     echo "  • TLS server name: $server_name"
     echo "  • Reality handshake target: $handshake_server:$handshake_port"
-    create_vless_json /etc/sing-box/vless.json || return 1
+    temporary_config=$(mktemp "${config_file}.XXXXXX") || {
+        log_error "Failed to create a temporary sing-box configuration"
+        return 1
+    }
+    if ! create_vless_json "$temporary_config" ||
+        ! validate_sing_box_config "$temporary_config"; then
+        rm -f "$temporary_config"
+        return 1
+    fi
+    if ! chmod 644 "$temporary_config" || ! mv -f "$temporary_config" "$config_file"; then
+        rm -f "$temporary_config"
+        log_error "Failed to install validated sing-box configuration"
+        return 1
+    fi
     rm -f /etc/sing-box/config.json >> "$LOG_FILE" 2>&1 || return 1
     ln -sf /etc/sing-box/vless.json /etc/sing-box/config.json || return 1
     log_info "VLESS configuration linked"
@@ -1180,7 +1242,7 @@ SYSTEMD_EOF
 
     read -p "Enable and start sing-box service? (Y/n) " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
         log_info "Enabling sing-box autostart..."
         if systemctl enable sing-box >> "$LOG_FILE" 2>&1; then
             log_info "sing-box enabled for autostart"
@@ -1300,7 +1362,7 @@ run_installation() {
             "type": "direct"
         },'
     fi
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ -n "$REPLY" && ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Installation cancelled by user${NC}"
         return 0
     fi
@@ -1776,7 +1838,10 @@ main_loop() {
         
         case $choice in
             0)
-                run_installation
+                if ! run_installation; then
+                    print_error "Installation did not complete. Check $LOG_FILE for details."
+                    pause_menu
+                fi
                 ;;
             1)
                 show_sing_box_status
@@ -1806,4 +1871,5 @@ main_loop() {
 trap 'log_error "Operation failed at line $LINENO"; exit 1' ERR
 
 check_root
+initialize_logging
 main_loop

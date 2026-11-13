@@ -15,7 +15,21 @@ install Nginx to host a local camouflage website.
 
 ### Install and configure
 
-Clone the repository and edit the user configuration near the top of `singmanager`:
+For a quick installation with the release's default settings, run the latest
+published script directly with Bash:
+
+```bash
+curl -fsSL https://github.com/Cerostep/sing-manager/releases/latest/download/singmanager | sudo bash
+```
+
+This downloads and executes the script without saving a local copy. Review the
+script before running it, and use the repository method below if you want to edit
+settings such as `SELF_BACKEND`, `SELF_DOMAIN`, `ENABLE_WARPPLUS`, or
+`SING_BOX_VERSION` first. The installer will start its interactive setup after
+launching.
+
+To customize settings before installation, clone the repository and edit the user
+configuration near the top of `singmanager`:
 
 ```bash
 git clone https://github.com/Cerostep/sing-manager.git
@@ -28,6 +42,12 @@ can be enabled by setting `ENABLE_WARPPLUS="true"`. Set `SELF_BACKEND` and
 `ENABLE_WARPPLUS` to `"true"` or `"false"` as needed. In external-site mode, the
 installer detects the server's public IPv4 address for the VLESS subscription. If
 detection fails, it asks for a client connection address for that installation only.
+Set `SING_BOX_VERSION` to the sing-box release version to install; the default is
+`1.13.8`. The generated configuration is checked by that installed version before
+it replaces the managed configuration. If a release does not support the generated
+configuration, installation stops and logs the validation details in
+the installation log. The default log is `/tmp/install.log`; if that path is
+unavailable, the installer creates a private temporary log and prints its path.
 If enabling the local Nginx backend, set `SELF_DOMAIN` to a domain you control and
 `ACME_EMAIL` to an account contact address. The domain is used as the client
 connection address; the installer requests and installs its Nginx certificate
@@ -41,10 +61,11 @@ bash singmanager
 ```
 
 Review and confirm the displayed configuration, choose `0` from the main menu, and
-confirm the installation. The installer installs the supported sing-box version
-`1.13.8` without prompting for a version. When asked whether to enable and start
-sing-box, answer `Y`. The installer installs its dependencies, configures the VLESS +
-Reality service, and creates a subscription link and QR code.
+confirm the installation. The installer installs the configured sing-box version
+without prompting for a version. When asked whether to enable and start sing-box,
+answer `Y`. The installer installs its dependencies, validates the generated
+configuration, configures the VLESS + Reality service, and creates a subscription
+link and QR code.
 
 ### Connect a client
 
@@ -139,8 +160,9 @@ entered temporarily if detection fails. The Cloudflare API token is only needed 
 certificate issuance/renewal; never paste it into chat, logs, or source control.
 
 If ACME issuance, certificate validation, `nginx -t`, or Nginx startup fails, the
-installation stops rather than reporting a usable self-hosted backend. Inspect
-`/tmp/install.log` for diagnostics and rerun the installer after resolving the cause.
+installation stops rather than reporting a usable self-hosted backend. Inspect the
+installation log path printed by the installer for diagnostics and rerun it after
+resolving the cause.
 For details about DNS-01, see the official
 [Let's Encrypt challenge documentation](https://letsencrypt.org/docs/challenge-types/)
 and the [acme.sh DNS API documentation](https://github.com/acmesh-official/acme.sh).
